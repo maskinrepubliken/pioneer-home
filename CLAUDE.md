@@ -5,7 +5,7 @@ A small engine recomputes cells like a spreadsheet, fires rules on edges, and se
 zigbee2mqtt and a GPIO service over MQTT.
 
 Never guess about the physical setup. Facts about the Pi, its devices and services are in `CLAUDE.local.md`
-(gitignored, may be missing), `README.md` (section "The Pi") and `tables/devices.tsv`. If something is not written down, ask.
+(gitignored, may be missing), `README.md` (section "Hardware") and `tables/devices.tsv`. If something is not written down, ask.
 Never commit facts about a specific house (room or device names, hosts, addresses, locations): they belong in
 `tables/` or `CLAUDE.local.md`, which are gitignored. Examples in code, tests and docs use the names from `example/`.
 
