@@ -1,0 +1,7 @@
+# Rooms: a device's `room` column must name one of these ids. `name` is the Swedish display name and the value of <device>.room_name,
+# so it also becomes the `location` field in the PocketBase climate history (keep the spelling the old rows used).
+id	name	note
+bedroom	bedroom	
+workshop	workshop	
+living_room	living room	
+study	study	

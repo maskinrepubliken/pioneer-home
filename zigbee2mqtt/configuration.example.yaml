@@ -1,0 +1,51 @@
+# Example configuration. Copy to configuration.yaml (gitignored) and use your own devices.
+version: 5
+mqtt:
+  base_topic: zigbee2mqtt
+  server: mqtt://localhost:1883
+serial:
+  port: /dev/ttyACM0
+  adapter: deconz
+  baudrate: 115200
+  rtscts: false
+advanced:
+  log_level: info
+  channel: 25
+  network_key: '!secret network_key'
+  pan_id: '!secret pan_id'
+  ext_pan_id: '!secret ext_pan_id'
+frontend:
+  enabled: true
+  port: 8080
+homeassistant:
+  enabled: false
+devices:
+  '0x0000000000000001':
+    friendly_name: MOTION2
+    temperature_precision: 1
+    no_occupancy_since: []
+    temperature_calibration: 2
+    retain: true
+  '0x0000000000000002':
+    friendly_name: MOTION1
+    no_occupancy_since: []
+    temperature_calibration: 4
+    retain: true
+  '0x0000000000000003':
+    friendly_name: FLOOR1
+    retain: true
+    thermostat_unit: celsius
+  '0x0000000000000004':
+    friendly_name: FLOOR2
+    retain: true
+  '0x0000000000000005':
+    friendly_name: PLUG1
+    retain: true
+  '0x0000000000000006':
+    friendly_name: LAMP1
+    retain: true
+    transition: '1'
+  '0x0000000000000007':
+    friendly_name: REMOTE1
+  '0x0000000000000008':
+    friendly_name: HEATER1

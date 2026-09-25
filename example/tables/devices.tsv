@@ -1,0 +1,16 @@
+# One row per physical device. `id` is the device's own stable name (as in zigbee2mqtt), never the room: sensors move.
+# `room` must be an id from rooms.tsv and is also readable as the cells <id>.room and <id>.room_name.
+# `kind` decides which cells the device exposes (see engine/src/core/kinds.ts).
+# source: z2m:<friendly name> (zigbee2mqtt) or mqtt:<topic> (generic JSON topic, e.g. the GPIO service).
+id	room	kind	source	name	note
+motion1	living_room	motion	z2m:MOTION1	Rörelsesensor MOTION1	Hue SML001; occupancy, illuminance, temperature (cal +4)
+motion2	study	motion	z2m:MOTION2	Rörelsesensor MOTION2	Hue SML001; occupancy, illuminance, temperature (cal +2)
+floor1	study	thermostat	z2m:FLOOR1	Golvvärme FLOOR1	Schneider WDE002497
+floor2	living_room	thermostat	z2m:FLOOR2	Golvvärme FLOOR2	Schneider WDE011680
+plug1	bedroom	plug	z2m:PLUG1	Luftfuktaren	Hue plug LOM001
+lamp1	living_room	light	z2m:LAMP1	Lampa LAMP1	Hue colour bulb LCT012
+remote1	living_room	remote	z2m:REMOTE1	Fjärrkontroll REMOTE1	Hue dimmer RWL021
+heater1	study	thermostat	z2m:HEATER1	Panelvärmare HEATER1	panel heater
+climate1	bedroom	climate	mqtt:home/gpio/climate1	Klimatsensor 1	DHT22 on GPIO 17
+climate2	workshop	climate	mqtt:home/gpio/climate2	Klimatsensor 2	DHT22 on GPIO 4
+fan	bedroom	pwm	mqtt:home/gpio/fan	Fläkten	PWM on GPIO 27, level 0-100

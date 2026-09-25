@@ -1,0 +1,381 @@
+/* Global styles. Every colour, font, space and radius is a token from tokens.css (generated from
+   web/design/tokens.json). Maskinrepubliken rules: no shadows, no gradients, no opacity for tone,
+   no transitions; hover is a surface swap, focus is a 2px ring, status is never colour alone. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.4;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+a {
+  color: var(--link);
+  text-decoration: underline;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5) 80px;
+  padding-left: max(var(--space-5), env(safe-area-inset-left));
+  padding-right: max(var(--space-5), env(safe-area-inset-right));
+}
+@media (min-width: 1000px) {
+  .page {
+    padding-left: max(var(--space-10), env(safe-area-inset-left));
+    padding-right: max(var(--space-10), env(safe-area-inset-right));
+  }
+}
+
+/* "avdelning": the eyebrow over a section, Rubik 700 in rust. */
+h2.group {
+  font-family: var(--font-display);
+  font-size: 20px;
+  line-height: 1;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--surface-rust);
+  margin: var(--space-6) 0 var(--space-3);
+}
+/* In the ink theme (explicit data-theme only) the eyebrow goes ochre, as the reference does on surface-* blocks. */
+:root[data-theme='ink'] h2.group {
+  color: var(--ochre);
+}
+
+/* "kort" */
+.card {
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  color: var(--ink);
+}
+
+/* "bricka": mono etikett in a capsule. Outlined by default, filled (ochre) for the one signal,
+   alarm for errors. The word carries the meaning, never the colour alone. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--paper-raised);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.pill.on,
+.pill.fired {
+  background: var(--ochre);
+  border-color: var(--ochre);
+  color: var(--on-ochre);
+}
+.pill.off,
+.pill.neutral,
+.pill.warn {
+  background: var(--paper-raised);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+.pill.neutral {
+  color: var(--ink-muted);
+}
+.pill.danger {
+  background: var(--paper-raised);
+  border-color: var(--alarm);
+  color: var(--alarm);
+}
+
+/* "knapp": secondary by default (paper, line-strong, ink); .primary is the one ochre button per area. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  color: var(--ink);
+  padding: 6px 16px;
+  min-height: 34px;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+}
+.btn:hover {
+  background: var(--paper-hover);
+}
+.btn.primary {
+  background: var(--ochre);
+  border-color: var(--ochre);
+  color: var(--on-ochre);
+}
+.btn.primary:hover {
+  background: var(--ochre);
+}
+.btn.small {
+  padding: 3px 12px;
+  min-height: 28px;
+  font-size: 14px;
+}
+.btn:disabled,
+.btn.primary:disabled {
+  background: var(--paper-sunken);
+  border-color: var(--line);
+  color: var(--ink-faint);
+  cursor: default;
+}
+
+/* "formular": fields sit sunken, with a line-strong edge. */
+input[type='text'],
+input[type='search'],
+select,
+textarea {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--paper-sunken);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-m);
+  padding: 5px 12px;
+  min-height: 34px;
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--ink-faint);
+}
+input[type='checkbox'] {
+  accent-color: var(--ochre);
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+/* Range sliders: sunken track, bordered thumb, no accent fill. */
+input[type='range'] {
+  width: 100%;
+  margin: 0;
+  height: 28px;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height: 8px;
+  background: var(--paper-sunken);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+}
+input[type='range']::-moz-range-track {
+  height: 8px;
+  background: var(--paper-sunken);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -7px;
+  border-radius: 50%;
+  background: var(--paper-raised);
+  border: 1px solid var(--line-strong);
+}
+input[type='range']::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--paper-raised);
+  border: 1px solid var(--line-strong);
+}
+input[type='range']:hover::-webkit-slider-thumb {
+  background: var(--paper-hover);
+}
+input[type='range']:hover::-moz-range-thumb {
+  background: var(--paper-hover);
+}
+
+.muted {
+  color: var(--ink-muted);
+}
+.faint {
+  color: var(--ink-faint);
+}
+.danger-text {
+  color: var(--alarm);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin: var(--space-2) 0 var(--space-4);
+}
+.toolbar .spacer {
+  flex: 1;
+}
+
+label.check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink-muted);
+  user-select: none;
+}
+
+/* "bildtext": the one Fraunces italic, for empty states. */
+.empty {
+  font-family: var(--font-prose);
+  font-style: italic;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink-muted);
+  padding: var(--space-7) 0;
+  text-align: center;
+}
+
+.notice {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-4);
+  transform: translateX(-50%);
+  max-width: min(92vw, 600px);
+  background: var(--paper-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+  padding: var(--space-3) var(--space-5);
+  font-size: 14px;
+  line-height: 1.5;
+  z-index: 50;
+}
+.notice.error {
+  border-color: var(--alarm);
+  color: var(--alarm);
+}
+
+/* Tabs behave like nav links: current one underlined in currentColor. */
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: var(--space-3);
+}
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+.tabs button {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: var(--space-2) var(--space-3);
+  color: var(--ink-muted);
+  white-space: nowrap;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.4;
+}
+.tabs button:hover {
+  background: var(--paper-hover);
+}
+.tabs button.active {
+  color: var(--ink);
+  border-bottom-color: currentColor;
+}
+
+/* uPlot: mono axes and legend, circular markers, tokens only. */
+.uplot {
+  font-family: var(--font-ui);
+}
+.uplot .u-legend {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+  text-align: left;
+}
+.uplot .u-legend .u-marker {
+  border-radius: 50%;
+}
+.uplot .u-legend th {
+  font-weight: 400;
+}
+
+/* Toggle switch (lamps, plugs, boolean cells): empty hole when off, filled ochre when on. Instant, no motion.
+   Always pair it with the word PÅ/AV somewhere visible: status is never colour alone. */
+.toggle {
+  width: 46px;
+  height: 26px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line-strong);
+  background: var(--paper-sunken);
+  position: relative;
+  padding: 0;
+  flex-shrink: 0;
+}
+.toggle:hover {
+  background: var(--paper-hover);
+}
+.toggle .knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--paper-raised);
+  border: 1px solid var(--line-strong);
+}
+.toggle.on,
+.toggle.on:hover {
+  background: var(--ochre);
+  border-color: var(--ochre);
+}
+.toggle.on .knob {
+  transform: translateX(20px);
+  background: var(--on-ochre);
+  border-color: var(--on-ochre);
+}

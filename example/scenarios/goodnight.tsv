@@ -1,0 +1,9 @@
+# The goodnight sequence: night scene now, hallway lamp off 10 minutes later unless someone is still moving.
+step	at	do	expect	note
+1	2026-09-23T22:00	set lamp1.state TRUE	nothing sent	
+2		action start goodnight	sent lamp1 brightness=25 color_temp=500; running goodnight	scene night = 10% 2000K
+3	+5m	set motion1.occupancy TRUE	not running goodnight; nothing sent	motion cancels the pending step
+4		set motion1.occupancy FALSE	nothing sent	
+5		action start goodnight	running goodnight	
+6	+10m		sent lamp1 state=OFF; not running goodnight	step 2 fired after 10 minutes
+7		event goodnight	running goodnight; sent lamp1 brightness=25	an event can start the sequence too

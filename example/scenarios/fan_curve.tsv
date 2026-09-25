@@ -1,0 +1,14 @@
+# Bedroom fan: off at or below 17°C, linear 17.5 -> 20°C, only during the night window (19:30-06:00) and when auto is on.
+step	at	do	expect	note
+1	2026-09-23T21:00	set fan.level 0	ISBLANK(fan_wanted); nothing sent	no temperature yet: the curve is NULL and nothing is sent
+2		set climate1.temperature 19	sent fan level=60; fan_target = 60	(19-17.5)/2.5 = 60%
+3		set climate1.temperature 22	sent fan level=100	
+4		set climate1.temperature 17.2	sent fan level=0	below fan_min_temp clamps to 0
+5		set climate1.temperature 16	nothing sent; fan.level = 0	still 0, nothing to send
+6		set climate1.temperature 18.5	sent fan level=40	
+7		set fan_auto FALSE	sent fan level=0	manual mode stops the fan
+8		set climate1.temperature 19.5	nothing sent	manual: curve ignored
+9		set fan_auto TRUE	sent fan level=80	
+10	2026-09-24T06:00:01		sent fan level=0; night_window = FALSE	window closes at 06:00
+11		set climate1.temperature 21	nothing sent	daytime: no fan even when warm
+12	2026-09-24T19:30:00		sent fan level=100; night_window = TRUE	window opens again

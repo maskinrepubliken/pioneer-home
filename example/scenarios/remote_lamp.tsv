@@ -1,0 +1,11 @@
+# Hue dimmer REMOTE1 controls lamp LAMP1: on/off, brightness steps, red at night.
+# The remote_* rules are disabled in rules.tsv until Node-RED's Light Control tab is retired; the scenario enables them.
+step	at	do	expect	note
+0	2026-09-23T20:00	enable remote_on remote_up remote_down remote_off	nothing sent	
+1		set lamp1.state FALSE	nothing sent	
+2		mqtt zigbee2mqtt/REMOTE1 {"action":"on_press_release","battery":90}	sent lamp1 state=ON color_temp=500; lamp1.state = TRUE	20:00 is not late night: warm white 2000K = 500 mireds
+3		mqtt zigbee2mqtt/REMOTE1 {"action":"up_press_release"}	sent lamp1 brightness_step_onoff=51	
+4		mqtt zigbee2mqtt/REMOTE1 {"action":"down_press_release"}	sent lamp1 brightness_step=-51	
+5		mqtt zigbee2mqtt/REMOTE1 {"action":"off_press_release"}	sent lamp1 state=OFF; lamp1.state = FALSE	
+6	2026-09-23T23:30	mqtt zigbee2mqtt/REMOTE1 {"action":"on_press_release"}	sent lamp1 state=ON color=#ff0000; late_night = TRUE	late at night the lamp comes on red
+7		mqtt zigbee2mqtt/REMOTE1 {"action":"on_press_release"}	sent lamp1 state=ON	pressing again re-sends: every press counts

@@ -1,0 +1,24 @@
+{
+  "name": "web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "tokens": "node scripts/tokens.mjs",
+    "dev": "node scripts/tokens.mjs && vite",
+    "build": "node scripts/tokens.mjs && vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "mock": "node mock/server.mjs"
+  },
+  "dependencies": {
+    "uplot": "^1.6.32"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.1.0",
+    "svelte": "^5.34.0",
+    "svelte-check": "^4.2.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  }
+}

@@ -1,0 +1,21 @@
+[Unit]
+Description=pioneer-home engine (the home as a spreadsheet)
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/opt/pioneer-home/engine
+EnvironmentFile=/etc/pioneer-home/engine.env
+ExecStart=/usr/bin/node /opt/pioneer-home/engine/dist/main.js
+Restart=always
+RestartSec=5s
+MemoryMax=300M
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pioneer-engine
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,22 @@
+[Unit]
+Description=pioneer-home GPIO service (DHT22 sensors, PWM fan) over MQTT
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+SupplementaryGroups=gpio
+WorkingDirectory=/opt/pioneer-home/gpio
+EnvironmentFile=-/etc/pioneer-home/gpio.env
+ExecStart=/opt/pioneer-home/gpio/.venv/bin/python gpio.py
+Restart=always
+RestartSec=5s
+MemoryMax=100M
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pioneer-gpio
+
+[Install]
+WantedBy=multi-user.target

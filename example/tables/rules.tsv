@@ -1,0 +1,15 @@
+# Decision table. `when` empty = fire once when `if` goes from not-true to true (rising edge).
+# `when` = on <cell> fires on every change of that cell while `if` is true. `on event` fires on `event <name>` actions.
+# `when` = at <time> [days] fires on a clock: at 08:00 daily, at 07:00 mon-fri, at sunset-30m (sunrise/sunset take +/- offsets).
+# `then` holds one or more actions separated by `;`. `enabled` = no disables a row (used during migration).
+id	when	if	then	enabled	note
+fan_follow	on fan_wanted	fan_wanted <> COALESCE(fan.level, -1)	set fan {fan_wanted}	yes	fan tracks the computed level (COALESCE: also send when the level is still unknown)
+fan_resync	on fan.level	AND(fan_auto, fan_wanted <> COALESCE(fan.level, -1))	set fan {fan_wanted}	yes	if the GPIO service restarts with a different level
+humid_on		AND(fan_auto, too_dry)	set plug1 on	yes	hysteresis: on below 50%
+humid_off		AND(fan_auto, too_humid)	set plug1 off	yes	off above 60%
+remote_on	on remote1	remote1 = "on_press_release"	set lamp1 on {IF(late_night, "color=#ff0000", "2000K")}	no	red at night, warm white otherwise (disabled until Node-RED Light Control is retired)
+remote_up	on remote1	remote1 = "up_press_release"	set lamp1 brightness+=20%	no	(disabled until Node-RED Light Control is retired)
+remote_down	on remote1	remote1 = "down_press_release"	set lamp1 brightness-=20%	no	(disabled until Node-RED Light Control is retired)
+remote_off	on remote1	remote1 = "off_press_release"	set lamp1 off	no	(disabled until Node-RED Light Control is retired)
+goodnight_evt	on event	event = "goodnight"	start goodnight	yes	UI button or a remote press can trigger the goodnight sequence
+fan_off_morning	at 08:00 daily		set fan 0	yes	fläkten ska aldrig stå på efter natten (var schemat i Node-RED)

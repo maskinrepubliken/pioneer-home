@@ -1,0 +1,21 @@
+# pioneer-home GPIO service configuration. MQTT_URL env overrides mqtt.url.
+mqtt:
+  url: mqtt://localhost:1883
+base: home/gpio
+
+sensors:
+  - id: climate1          # -> home/gpio/climate1  (devices.tsv: climate1)
+    model: dht22
+    pin: 17
+    interval_s: 30
+    samples: 3
+  - id: climate2           # -> home/gpio/climate2   (devices.tsv: climate2)
+    model: dht22
+    pin: 4
+    interval_s: 30
+    samples: 3
+
+fan:                    # -> home/gpio/fan, set via home/gpio/fan/set {"level": 0-100}
+  pin: 27
+  frequency_hz: 100
+  initial_level: 0

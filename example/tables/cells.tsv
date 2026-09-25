@@ -1,0 +1,23 @@
+# Cells the house computes or holds. A row WITH a formula is recomputed like a spreadsheet cell; a row WITHOUT a formula holds
+# a value until a rule or the UI sets it (initial = its start value; type is optional when initial is given).
+# `room` (optional, an id from rooms.tsv) says which room the cell belongs to; the UI shows it there. Constants such as thresholds are cells too: formula = a number. Time-dependent formulas (TIME, SINCE...) re-evaluate every second.
+id	formula	initial	type	room	note
+# --- thresholds
+dark_elevation	-3				sun elevation (degrees) below which it counts as dark
+fan_off_temp	17			bedroom	fan is off at or below this temperature
+fan_min_temp	17.5			bedroom	fan curve starts here
+fan_max_temp	20			bedroom	fan is at 100% from here
+humidifier_on_below	50			bedroom	% relative humidity
+humidifier_off_above	60			bedroom	% relative humidity
+# --- held values
+fan_auto		TRUE	boolean	bedroom	automatic fan and humidifier control in bedroom
+# --- computed
+dark	sun.elevation < dark_elevation				
+night_window	BETWEEN(TIME(), 19:30, 06:00)				when the bedroom fan may run
+late_night	BETWEEN(TIME(), 23:00, 05:00)				lamp turns red instead of warm white
+fan_target	IF(climate1.temperature <= fan_off_temp, 0, CLAMP(ROUND((climate1.temperature - fan_min_temp) / (fan_max_temp - fan_min_temp) * 100), 0, 100))			bedroom	fan curve: off at 17, linear 17.5 -> 20, 100% above
+fan_wanted	IF(AND(fan_auto, night_window), fan_target, 0)			bedroom	0 when manual or outside the night window
+too_dry	climate1.humidity < humidifier_on_below			bedroom	
+too_humid	climate1.humidity > humidifier_off_above			bedroom	
+floor1_heating	floor1.mode = "heat"			study	bool for the heating history table
+floor2_heating	floor2.mode = "heat"			living_room	

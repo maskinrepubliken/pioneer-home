@@ -1,0 +1,11 @@
+# Humidifier plug hysteresis: on below 50%, off above 60%, only when auto is on.
+step	at	do	expect	note
+1	2026-09-23T12:00	set plug1.state FALSE	nothing sent	
+2		set climate1.humidity 55	nothing sent	inside the band: leave alone
+3		set climate1.humidity 48	sent plug1 state=ON; fired humid_on	
+4		set climate1.humidity 45	nothing sent	edge already fired
+5		set climate1.humidity 55	nothing sent	still inside the band
+6		set climate1.humidity 61	sent plug1 state=OFF; fired humid_off	
+7		set climate1.humidity 49	sent plug1 state=ON	edge re-armed after leaving the dry zone
+8		set fan_auto FALSE	nothing sent	manual mode does not touch the plug
+9		set climate1.humidity 70	nothing sent; not fired humid_off	auto off: rule condition stays false

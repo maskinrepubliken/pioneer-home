@@ -1,0 +1,5 @@
+# Multi-step timed procedures. `after` is the delay from the previous step. `cancel_if` is checked every pass while waiting.
+# A row with step = * holds a cancel condition for the whole sequence.
+sequence	step	after	action	cancel_if	note
+goodnight	1	0s	scene night		
+goodnight	2	10m	set lamp1 off	motion1	stays on if someone is still moving around

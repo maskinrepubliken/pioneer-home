@@ -1,0 +1,50 @@
+# Maps cells to PocketBase records. Rows with the same `record` are written as ONE record whenever any of their formulas change,
+# at most once per min_interval (and at least every max_interval as a heartbeat), and only when a numeric value moved by at least min_delta (per row). `formula` may be a literal.
+record	collection	field	formula	scale	min_interval	max_interval	min_delta	note
+climate_1	climate	sensor	"climate1"		5m	30m		GPIO DHT22 bedroom
+climate_1	climate	location	climate1.room_name					
+climate_1	climate	temperature	climate1.temperature				0.2	
+climate_1	climate	humidity	climate1.humidity	0.01			1	stored as 0-1
+climate_2	climate	sensor	"climate2"		5m	30m		GPIO DHT22 workshop
+climate_2	climate	location	climate2.room_name					
+climate_2	climate	temperature	climate2.temperature				0.2	
+climate_2	climate	humidity	climate2.humidity	0.01			1	
+climate_motion1	climate	sensor	"motion1"		5m	30m		
+climate_motion1	climate	location	motion1.room_name					
+climate_motion1	climate	temperature	motion1.temperature				0.2	
+climate_motion1	climate	illuminance	motion1.illuminance				5	
+climate_motion2	climate	sensor	"motion2"		5m	30m		
+climate_motion2	climate	location	motion2.room_name					
+climate_motion2	climate	temperature	motion2.temperature				0.2	
+climate_motion2	climate	illuminance	motion2.illuminance				5	
+climate_floor1	climate	sensor	"FLOOR1"		5m	30m		
+climate_floor1	climate	location	floor1.room_name					
+climate_floor1	climate	temperature	floor1.temperature				0.2	
+heating_floor1	heating	sensor	"FLOOR1"		5m	30m		
+heating_floor1	heating	powercycle	10					
+heating_floor1	heating	pi	floor1.demand				1	
+heating_floor1	heating	heating	floor1_heating					
+heating_floor1	heating	current	floor1.temperature				0.2	
+heating_floor1	heating	target	floor1.setpoint				0.1	
+climate_floor2	climate	sensor	"FLOOR2"		5m	30m		
+climate_floor2	climate	location	floor2.room_name					
+climate_floor2	climate	temperature	floor2.temperature				0.2	
+heating_floor2	heating	sensor	"FLOOR2"		5m	30m		
+heating_floor2	heating	powercycle	10					
+heating_floor2	heating	pi	floor2.demand				1	
+heating_floor2	heating	heating	floor2_heating					
+heating_floor2	heating	current	floor2.temperature				0.2	
+heating_floor2	heating	target	floor2.setpoint				0.1	
+power_fan	power	name	"fan"		0s			one row per change, like before
+power_fan	power	powerlevel	fan.level				1	
+power_humidifier	power	name	"humidifier"		0s			
+power_humidifier	power	powerlevel	IF(plug1.state, 100, 0)				1	
+power_auto	power	name	"automatic_control"		0s			
+power_auto	power	powerlevel	IF(fan_auto, 100, 0)				1	
+weather	weather	temperature	weather.temperature		20m	30m	0.1	OpenWeatherMap
+weather	weather	humidity	weather.humidity	0.01			1	stored as 0-1
+weather	weather	windspeed	weather.windspeed				0.1	
+weather	weather	winddirection	weather.winddirection				1	
+weather	weather	precipitation	weather.precipitation				0.1	
+weather	weather	detail	weather.detail					
+weather	weather	icon	weather.icon					

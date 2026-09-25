@@ -1,0 +1,5 @@
+# Grid: rows are devices, columns are scenes, cells are target tokens (on, off, 60%, 2700K, color=#ff0000, key=value).
+# An empty cell means "no change" for that device in that scene.
+device	off	evening	night	red
+lamp1	off	60% 2700K	10% 2000K	on color=#ff0000
+plug1	off			
