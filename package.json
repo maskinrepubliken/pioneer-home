@@ -2,6 +2,7 @@
   "name": "pioneer-home",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "description": "The home as a spreadsheet: TSV tables + Excel-like formulas driving zigbee2mqtt and GPIO on a Raspberry Pi",
   "packageManager": "pnpm@10.20.0",
   "engines": {
