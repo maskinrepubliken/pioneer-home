@@ -23,6 +23,7 @@ import { loadSnapshot, startSnapshotting } from './adapters/snapshot.js';
 import { reloadTables, watchTables } from './adapters/watcher.js';
 import { MemorySink, PocketBaseSink } from './adapters/pocketbase.js';
 import { startWeather } from './adapters/weather.js';
+import { PriceService } from './adapters/prices.js';
 import { DryRunReport } from './adapters/dryrun.js';
 import { HistoryTracker } from './core/history.js';
 import { formatConfigError } from './config/errors.js';
@@ -121,7 +122,14 @@ async function main(): Promise<void> {
     : () => undefined;
   if (!owmKey) log.info('OWM_API_KEY not set, weather.* cells stay NULL');
 
+  // Spot prices (elprisetjustnu.se) for the electricity.price cell and the cost estimate; price_area in settings.tsv.
+  const priceArea = settingString(config, 'price_area', '');
+  const prices = priceArea ? new PriceService(priceArea, resolve(stateDir, 'prices'), config.timezone, log) : undefined;
+  const stopPrices = prices ? prices.start(engine) : () => undefined;
+  if (!prices) log.info('price_area not set, electricity.price stays NULL');
+
   const httpOpts: import('./adapters/http.js').HttpOptions = { port, host, webDir: existsSync(webDir) ? webDir : null, tablesDir, dryRun, traceBuffer: 300, history: sink };
+  if (prices) httpOpts.prices = prices;
   if (dryRunReport) httpOpts.dryRunReport = dryRunReport;
   httpOpts.onTableSaved = () => reloadTables(tablesDir, engine, log, (error) => http.configChanged(error));
   const http: HttpServer = new HttpServer(engine, httpOpts, log);
@@ -134,6 +142,7 @@ async function main(): Promise<void> {
     log.info({ signal }, 'shutting down');
     stopSnapshots();
     stopWeather();
+    stopPrices();
     engine.dispose();
     history.dispose();
     await stopWatching();

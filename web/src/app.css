@@ -379,3 +379,15 @@ label.check {
   background: var(--on-ochre);
   border-color: var(--on-ochre);
 }
+
+/* Every reported value looks the same, whatever device or cell it comes from: mono, 15px, ink, tabular digits.
+   Numbers go through formatQuantity (lib/format.ts) so precision and unit spacing match too. */
+.value {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

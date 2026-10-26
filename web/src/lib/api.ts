@@ -15,6 +15,8 @@ export type EncodedValue =
 
 export type CellType = 'number' | 'boolean' | 'string' | 'duration' | 'timeofday' | 'timestamp' | 'null' | 'any';
 export type CellKind = 'input' | 'var' | 'derived' | 'setting';
+/** Appliance column in the Live view (devices.tsv / cells.tsv `group`, or the default for the device kind). */
+export type CellGroup = 'light' | 'heating' | 'air' | 'sensors' | 'other';
 
 export interface Cell {
   id: string;
@@ -25,10 +27,16 @@ export interface Cell {
   device: string | null;
   prop: string | null;
   room: string | null;
+  /** Appliance group; null for system cells (sun, weather) and settings. */
+  group: CellGroup | null;
   name: string | null;
+  /** Set on the two cells an alerts.tsv row compiles to: the condition (`if`) and its filled-in text. */
+  alert?: { id: string; level: AlertLevel; role: 'if' | 'text' } | null;
   changedAt: number | null;
   seenAt: number | null;
 }
+
+export type AlertLevel = 'info' | 'warning' | 'danger';
 
 export interface StateSnapshot {
   at: number;
@@ -84,6 +92,13 @@ export interface Trace {
   actions: ActionTrace[];
   sequences: SequenceTrace[];
   errors: string[];
+}
+
+/** One spot price slot (elprisetjustnu.se via the engine): epoch seconds, SEK per kWh without VAT. */
+export interface PriceSlot {
+  start: number;
+  end: number;
+  sek: number;
 }
 
 export interface Tables {
@@ -161,6 +176,8 @@ export const api = {
   trace: () => request<Trace[]>('/api/trace'),
   action: (action: string) => request<{ ok: boolean; traces: Trace[] }>('/api/action', { method: 'POST', body: JSON.stringify({ action }) }),
   event: (event: string) => request<{ ok: boolean; traces: Trace[] }>('/api/event', { method: 'POST', body: JSON.stringify({ event }) }),
+  prices: (since: Date, until: Date) =>
+    request<{ since: number; until: number; slots: PriceSlot[] }>(`/api/prices?since=${encodeURIComponent(since.toISOString())}&until=${encodeURIComponent(until.toISOString())}`),
   history: (collection: string, since: Date, until: Date) =>
     request<HistoryResponse>(`/api/history/${encodeURIComponent(collection)}?since=${encodeURIComponent(since.toISOString())}&until=${encodeURIComponent(until.toISOString())}`),
 };

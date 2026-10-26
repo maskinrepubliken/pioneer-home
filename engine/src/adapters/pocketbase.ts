@@ -104,16 +104,20 @@ export class PocketBaseSink implements HistorySink, HistoryQuery {
     }
   }
 
-  async query(collection: string, sinceIso: string, untilIso: string, limit = 5000): Promise<Record<string, unknown>[]> {
+  /**
+   * Every row of a collection in [since, until], oldest first, up to `limit`. An on/off heater alone can write a few
+   * thousand rows a day, so a month needs a high limit; pages of 1000 (PocketBase's largest) keep the requests few.
+   */
+  async query(collection: string, sinceIso: string, untilIso: string, limit = 250_000): Promise<Record<string, unknown>[]> {
     await this.auth();
     // PocketBase stores dates as "YYYY-MM-DD HH:MM:SS.sssZ" text and compares strings, so the bounds must use that shape.
     const filter = this.pb.filter('when >= {:since} && when <= {:until}', { since: pbDate(sinceIso), until: pbDate(untilIso) });
     const items: Record<string, unknown>[] = [];
     let page = 1;
     for (;;) {
-      const res = await this.pb.collection(collection).getList(page, 500, { filter, sort: 'when', skipTotal: true });
+      const res = await this.pb.collection(collection).getList(page, 1000, { filter, sort: 'when', skipTotal: true });
       items.push(...(res.items as unknown as Record<string, unknown>[]));
-      if (res.items.length < 500 || items.length >= limit) break;
+      if (res.items.length < 1000 || items.length >= limit) break;
       page++;
     }
     return items;

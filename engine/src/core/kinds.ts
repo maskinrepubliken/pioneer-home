@@ -394,6 +394,23 @@ const pwm: KindSpec = {
 
 export const KINDS: Record<string, KindSpec> = { light, plug, motion, contact, thermostat, remote, climate, pwm };
 
+/**
+ * zigbee2mqtt reports a command it could not deliver on `<base>/bridge/logging` as
+ * `{"level":"error","message":"z2m: Publish 'set' 'x' to 'FRIENDLY' failed: ..."}`. Returns the friendly name, else null.
+ */
+export function z2mFailedCommand(payload: string): string | null {
+  let o: unknown;
+  try {
+    o = JSON.parse(payload);
+  } catch {
+    return null;
+  }
+  if (!o || typeof o !== 'object') return null;
+  const { level, message } = o as { level?: unknown; message?: unknown };
+  if (level !== 'error' || typeof message !== 'string') return null;
+  return /Publish '[^']*' '[^']*' to '([^']+)' failed/.exec(message)?.[1] ?? null;
+}
+
 export function getKind(name: string): KindSpec | undefined {
   return KINDS[name];
 }

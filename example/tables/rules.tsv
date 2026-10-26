@@ -13,3 +13,5 @@ remote_down	on remote1	remote1 = "down_press_release"	set lamp1 brightness-=20%	
 remote_off	on remote1	remote1 = "off_press_release"	set lamp1 off	no	(disabled until Node-RED Light Control is retired)
 goodnight_evt	on event	event = "goodnight"	start goodnight	yes	UI button or a remote press can trigger the goodnight sequence
 fan_off_morning	at 08:00 daily		set fan 0	yes	fläkten ska aldrig stå på efter natten (var schemat i Node-RED)
+living_room_heat	on living_room_target		set thermostat in living_room setpoint={living_room_target}	yes	alla termostater i rummet får rummets måltemperatur
+study_heat	on study_target		set thermostat in study setpoint={study_target}	yes	alla termostater i rummet får rummets måltemperatur

@@ -22,6 +22,7 @@ import type { HistoryQuery } from './pocketbase.js';
 import type { DryRunReport } from './dryrun.js';
 import { isEditableTable, saveTable, validateTable } from './tables-edit.js';
 import { formatConfigError } from '../config/errors.js';
+import type { PriceService } from './prices.js';
 
 export interface HttpOptions {
   port: number;
@@ -31,6 +32,7 @@ export interface HttpOptions {
   dryRun: boolean;
   traceBuffer: number;
   history?: HistoryQuery;
+  prices?: PriceService;
   dryRunReport?: DryRunReport;
   /** called after a table was saved through the API; should reload the engine and return the error text or null */
   onTableSaved?: (file: string) => string | null;
@@ -79,7 +81,9 @@ export class HttpServer {
         device: def?.device ?? null,
         prop: def?.prop ?? null,
         room: dev?.room ?? def?.room ?? null,
-        name: dev?.name ?? null,
+        group: dev?.group ?? def?.group ?? null,
+        name: dev?.name ?? def?.name ?? null,
+        alert: def?.alert ?? null,
         changedAt: st.changedAt,
         seenAt: st.seenAt,
       };
@@ -130,6 +134,13 @@ export class HttpServer {
         this.log.warn({ err: (e as Error).message }, 'history query failed');
         return reply.code(502).send({ error: `history query failed: ${(e as Error).message}` });
       }
+    });
+
+    app.get<{ Querystring: { since?: string; until?: string } }>('/api/prices', async (req, reply) => {
+      if (!this.opts.prices) return reply.code(404).send({ error: 'spot prices not configured (price_area in settings.tsv)' });
+      const until = Date.parse(req.query.until ?? '') || Date.now();
+      const since = Date.parse(req.query.since ?? '') || until - 24 * 3_600_000;
+      return { since, until, slots: await this.opts.prices.query(since, until) };
     });
 
     app.put<{ Params: { file: string }; Body: { text?: string; validateOnly?: boolean; message?: string } }>('/api/tables/:file', async (req, reply) => {
@@ -202,7 +213,7 @@ export class HttpServer {
         return reply.sendFile('index.html');
       });
     } else {
-      app.get('/', async () => ({ name: 'pioneer-home engine', api: ['/api/health', '/api/state', '/api/events', '/api/tables', '/api/trace', '/api/history/:collection', '/api/dryrun', 'PUT /api/tables/:file', 'POST /api/action', 'POST /api/event'] }));
+      app.get('/', async () => ({ name: 'pioneer-home engine', api: ['/api/health', '/api/state', '/api/events', '/api/tables', '/api/trace', '/api/history/:collection', '/api/prices', '/api/dryrun', 'PUT /api/tables/:file', 'POST /api/action', 'POST /api/event'] }));
     }
   }
 

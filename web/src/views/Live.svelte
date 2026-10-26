@@ -1,153 +1,140 @@
 <script lang="ts">
   /**
-   * Cells grouped by room -> device. The room is the device's `.room` cell (devices.tsv), the header its name from rooms.tsv.
-   * Cells from cells.tsv with a `room` join that room as a "Styrning" card; those without land in "Huset".
-   * Sun/weather/settings go to "System".
+   * The house, one panel per room (from device `.room` and cell `room`), split into appliance columns
+   * (see lib/live.ts). Cells without a room ("Hela huset"), sun, weather and settings sit collapsed under
+   * "Visa system" at the bottom.
    */
-  import type { Cell } from '../lib/api';
-  import { formatDuration, roomName, systemName } from '../lib/format';
+  import { buildLive } from '../lib/live';
+  import { formatDuration } from '../lib/format';
+  import { disclosureId, isOpen } from '../lib/disclosure.svelte';
   import { home } from '../lib/state.svelte';
-  import DeviceCard, { type DeviceGroup } from '../components/DeviceCard.svelte';
+  import DetailList from '../components/live/DetailList.svelte';
+  import DisclosureButton from '../components/live/DisclosureButton.svelte';
+  import RoomPanel from '../components/live/RoomPanel.svelte';
+  import VarRow from '../components/live/VarRow.svelte';
+  import AlertBanners from '../components/live/AlertBanners.svelte';
 
-  let showAll = $state(false);
-
-  interface Section {
-    title: string;
-    groups: DeviceGroup[];
-  }
-
-  const sections = $derived.by((): Section[] => {
-    const cells = Object.values(home.cells);
-    const byRoom = new Map<string, Map<string, DeviceGroup>>();
-    const derived: Cell[] = [];
-    const vars: Cell[] = [];
-    const settings: Cell[] = [];
-    const system = new Map<string, DeviceGroup>();
-    const roomCells = new Map<string, Cell[]>();
-
-    for (const c of cells) {
-      if (c.device) {
-        const room = c.room ?? '';
-        let devices = byRoom.get(room);
-        if (!devices) byRoom.set(room, (devices = new Map()));
-        let g = devices.get(c.device);
-        if (!g) {
-          const kind = home.tables?.devices.find((d) => d.id === c.device)?.kind ?? guessKind(c.device, cells);
-          devices.set(c.device, (g = { id: c.device, name: c.name ?? c.device, kind, room: c.room, cells: [] }));
-        }
-        g.cells.push(c);
-      } else if ((c.kind === 'derived' || c.kind === 'var') && c.room) {
-        let list = roomCells.get(c.room);
-        if (!list) roomCells.set(c.room, (list = []));
-        list.push(c);
-      } else if (c.kind === 'derived') derived.push(c);
-      else if (c.kind === 'var') vars.push(c);
-      else if (c.kind === 'setting') settings.push(c);
-      else {
-        // system inputs: sun.elevation, weather.temperature ...
-        const prefix = c.id.includes('.') ? c.id.slice(0, c.id.indexOf('.')) : 'system';
-        let g = system.get(prefix);
-        if (!g) system.set(prefix, (g = { id: prefix, name: systemName(prefix), kind: 'system', room: null, cells: [] }));
-        g.cells.push(c);
-      }
-    }
-
-    const out: Section[] = [];
-    const names = home.rooms;
-    for (const [room, list] of roomCells) {
-      let devices = byRoom.get(room);
-      if (!devices) byRoom.set(room, (devices = new Map()));
-      // held values first (they have controls), then computed cells, each alphabetically
-      list.sort((a, b) => (a.kind === b.kind ? byId(a, b) : a.kind === 'var' ? -1 : 1));
-      devices.set(`cells:${room}`, { id: `cells:${room}`, name: 'Styrning', kind: 'computed', room, cells: list });
-    }
-    const rooms = [...byRoom.keys()].sort((a, b) => roomName(a || null, names).localeCompare(roomName(b || null, names), 'sv'));
-    for (const r of rooms) {
-      // devices alphabetically, the room's own cells ("Styrning") last
-      const groups = [...byRoom.get(r)!.values()].sort((a, b) => Number(a.kind === 'computed') - Number(b.kind === 'computed') || a.name.localeCompare(b.name, 'sv'));
-      for (const g of groups) if (g.kind !== 'computed') g.cells.sort(cellOrder);
-      out.push({ title: roomName(r || null, names), groups });
-    }
-
-    const computed: DeviceGroup[] = [];
-    if (vars.length) computed.push({ id: 'vars', name: 'Variabler', kind: 'computed', room: null, cells: vars.sort(byId) });
-    if (derived.length) computed.push({ id: 'derived', name: 'Formler', kind: 'computed', room: null, cells: derived.sort(byId) });
-    if (computed.length) out.push({ title: 'Huset', groups: computed });
-
-    const sys = [...system.values()].sort((a, b) => a.id.localeCompare(b.id));
-    for (const g of sys) g.cells.sort(byId);
-    if (showAll && settings.length) sys.push({ id: 'settings', name: 'Inställningar', kind: 'system', room: null, cells: settings.sort(byId) });
-    if (sys.length) out.push({ title: 'System', groups: sys });
-    return out;
-  });
-
-  const PROP_ORDER = ['state', 'brightness', 'color_temp', 'color', 'level', 'occupancy', 'temperature', 'humidity', 'setpoint', 'demand', 'mode', 'running', 'illuminance', 'action', 'power', 'energy', 'pressure', 'battery', 'linkquality', 'room', 'room_name', 'available', 'last_seen'];
-  function cellOrder(a: Cell, b: Cell): number {
-    const ia = PROP_ORDER.indexOf(a.prop ?? '');
-    const ib = PROP_ORDER.indexOf(b.prop ?? '');
-    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.id.localeCompare(b.id);
-  }
-  const byId = (a: Cell, b: Cell) => a.id.localeCompare(b.id);
-
-  /** Fallback when /api/tables has not arrived: infer the kind from the props present. */
-  function guessKind(device: string, cells: Cell[]): string {
-    const props = new Set(cells.filter((c) => c.device === device).map((c) => c.prop));
-    if (props.has('brightness')) return 'light';
-    if (props.has('setpoint')) return 'thermostat';
-    if (props.has('occupancy')) return 'motion';
-    if (props.has('level')) return 'pwm';
-    if (props.has('action')) return 'remote';
-    if (props.has('open')) return 'contact';
-    if (props.has('humidity')) return 'climate';
-    if (props.has('state')) return 'plug';
-    return 'device';
-  }
-
-  const visibleSections = $derived(
-    sections
-      .map((s) => ({ ...s, groups: s.groups.filter((g) => showAll || g.cells.some((c) => c.value !== null || g.kind !== 'computed')) }))
-      .filter((s) => s.groups.length),
-  );
+  const kinds = $derived(Object.fromEntries((home.tables?.devices ?? []).map((d) => [d.id, d.kind])) as Record<string, string>);
+  const layout = $derived(buildLive(Object.values(home.cells), kinds, home.rooms));
+  const rooms = $derived(layout.rooms.filter((r) => r.readings.length || r.columns.length || r.computed.length || r.hidden.length));
+  const systemOpen = $derived(isOpen('system'));
 </script>
 
-<div class="toolbar">
-  <span class="muted">
-    {#if !home.loaded}
-      laddar…
-    {:else}
-      {Object.keys(home.cells).length} celler
-      {#if home.health}
-        · drifttid {formatDuration(home.health.uptimeSeconds * 1000)}
-      {/if}
-    {/if}
-  </span>
-  <span class="spacer"></span>
-  <label class="check"><input type="checkbox" bind:checked={showAll} /> Visa allt</label>
-</div>
+{#if !home.loaded}
+  <div class="toolbar"><span class="muted summary">laddar…</span></div>
+{/if}
 
-{#if home.loaded && !visibleSections.length}
+<AlertBanners alerts={layout.alerts} />
+
+{#if home.loaded && !rooms.length && !layout.system.length}
   <div class="empty">Inga celler ännu.</div>
 {/if}
 
-{#each visibleSections as s (s.title)}
-  <h2 class="group">{s.title}</h2>
-  <div class="grid">
-    {#each s.groups as g (g.id)}
-      <DeviceCard group={g} {showAll} />
-    {/each}
-  </div>
-{/each}
+<div class="rooms">
+  {#each rooms as r (r.key)}
+    <RoomPanel room={r} quiet={!r.key} />
+  {/each}
+</div>
+
+{#if home.loaded}
+  <section class="system" aria-label="System">
+    <DisclosureButton key="system" text={systemOpen ? 'Dölj system' : 'Visa system'} />
+    <div class="blocks" id={disclosureId('system')} hidden={!systemOpen}>
+      {#if systemOpen}
+        <div class="block card">
+          <h3 class="eyebrow">Motorn</h3>
+          <dl class="engine">
+            <div><dt>Celler</dt><dd class="value">{Object.keys(home.cells).length}</dd></div>
+            {#if home.health}
+              <div><dt>Drifttid</dt><dd class="value">{formatDuration(home.health.uptimeSeconds * 1000)}</dd></div>
+            {/if}
+          </dl>
+        </div>
+        {#each layout.system as b (b.id)}
+          <div class="block card">
+            <h3 class="eyebrow">{b.name}</h3>
+            {#if b.vars?.length}
+              <ul class="vars">
+                {#each b.vars as v (v.id)}
+                  <VarRow cell={v} />
+                {/each}
+              </ul>
+            {/if}
+            <DetailList cells={b.cells} ids />
+          </div>
+        {/each}
+      {/if}
+    </div>
+  </section>
+{/if}
 
 <style>
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
-    gap: var(--space-6);
-    align-items: start;
+  /* Rooms share rows: each panel's basis and growth follow its number of appliance columns (--cols, set by
+     RoomPanel), so a room with one column sits next to others while a room with four takes the full row. */
+  .rooms {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-5);
+    align-items: flex-start;
   }
-  .toolbar .muted {
+  .summary {
     font-family: var(--font-mono);
     font-size: 13px;
     line-height: 1.5;
+  }
+  .system {
+    margin-top: var(--space-6);
+  }
+  .blocks[hidden] {
+    display: none;
+  }
+  .blocks {
+    margin-top: var(--space-4);
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+    gap: var(--space-4);
+    align-items: start;
+  }
+  .block {
+    padding: var(--space-4);
+    min-width: 0;
+  }
+  .engine {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .engine div {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-3);
+  }
+  .engine dt {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--ink-faint);
+  }
+  .engine dd {
+    margin: 0;
+  }
+  .vars {
+    list-style: none;
+    margin: 0 0 var(--space-3);
+    padding: 0;
+  }
+  .eyebrow {
+    font-family: var(--font-display);
+    font-size: 12px;
+    line-height: 1.2;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--surface-rust);
+    margin: 0 0 var(--space-3);
+  }
+  :global(:root[data-theme='ink']) .eyebrow {
+    color: var(--ochre);
   }
 </style>

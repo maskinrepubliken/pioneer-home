@@ -13,9 +13,9 @@ function isGridDoc(file: string): boolean {
 export type ColumnWidth = 'id' | 'wide' | 'note' | 'medium' | 'narrow' | 'normal';
 
 const ID_COLUMNS = new Set(['id', 'key', 'device', 'record', 'sequence']);
-const WIDE_COLUMNS = new Set(['formula', 'if', 'then', 'action', 'cancel_if']);
+const WIDE_COLUMNS = new Set(['formula', 'if', 'then', 'action', 'cancel_if', 'text']);
 const MEDIUM_COLUMNS = new Set(['when', 'source', 'value']);
-const NARROW_COLUMNS = new Set(['enabled', 'step', 'after', 'scale', 'min_interval', 'max_interval', 'min_delta', 'type', 'initial', 'kind', 'room', 'collection', 'field']);
+const NARROW_COLUMNS = new Set(['enabled', 'step', 'after', 'scale', 'min_interval', 'max_interval', 'min_delta', 'type', 'initial', 'kind', 'room', 'collection', 'field', 'level']);
 
 /** Which width class a column gets, by header name and table. In scenes every non-first column holds target tokens. */
 export function columnWidth(file: string, header: string, index: number): ColumnWidth {

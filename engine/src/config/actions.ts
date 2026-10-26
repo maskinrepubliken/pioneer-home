@@ -2,6 +2,7 @@
  * Parses action strings used in rules.then, schedule cells and sequences.action:
  *
  *   set <device> <targets...>       set hall.light 80% 2700K transition=2s
+ *   set <kind> in <room> <targets>  set thermostat in living_room setpoint=21 (every such device in the room)
  *   set <var> <value>               set bedroom.auto FALSE
  *   scene <scene> [<room>]          scene evening   /  scene off living
  *   event <name>                    event sleep
@@ -19,6 +20,7 @@ import { formula } from '../formula/index.js';
 import { FormulaError } from '../formula/api.js';
 import { parseDuration } from '../formula/values.js';
 import type { ActionDef, ActionToken } from './model.js';
+import { KINDS } from '../core/kinds.js';
 
 export type NameKind = 'device' | 'var' | undefined;
 
@@ -144,6 +146,10 @@ export function parseAction(text: string, ctx: ActionParseContext): ActionDef {
     case 'set': {
       need(2, 'set <device|var> <value...>');
       const target = rest[0]!;
+      if (rest[1]?.toLowerCase() === 'in' && KINDS[target.toLowerCase()]) {
+        if (rest.length < 4) throw new ActionParseError(`"${text}": expected set <kind> in <room> <targets...>`);
+        return { kind: 'set-room', deviceKind: target.toLowerCase(), room: rest[2]!, tokens: rest.slice(3).map(parseTemplate), source: text };
+      }
       const kind = ctx.classify(target);
       if (kind === 'device') {
         return { kind: 'set-device', device: target, tokens: rest.slice(1).map(parseTemplate), source: text };
@@ -204,6 +210,7 @@ export function actionFormulas(a: ActionDef): { ast: import('../formula/api.js')
   };
   switch (a.kind) {
     case 'set-device':
+    case 'set-room':
     case 'fade':
       a.tokens.forEach(collect);
       break;

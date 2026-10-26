@@ -48,6 +48,8 @@ export interface EvalContext {
    *                      null if it never had it.
    */
   since(ref: string, value?: Value): Duration | null;
+  /** SHARE(ref, window) -> share (0..1) of the window during which the boolean cell was TRUE, null if unknown. */
+  share(ref: string, windowMs: number): number | null;
   /** Current time, epoch ms. The simulator supplies a fake clock. */
   now(): number;
   /** IANA time zone used by TIME(), WEEKDAY(), TODAY(), BETWEEN on time of day, etc. */

@@ -1,0 +1,7 @@
+# Banners from alerts.tsv: the condition cell alert_<id> and its text cell alert_<id>_text.
+step	at	do	expect	note
+1	2026-10-15T12:00	set climate1.temperature 22	NOT(alert_bedroom_warm_manual)	automatic control: no banner
+2		set fan_auto FALSE	alert_bedroom_warm_manual; alert_bedroom_warm_manual_text = "Fläkten styrs inte automatiskt och det är 22 °C i sovrummet."	
+3		set climate1.temperature 19	NOT(alert_bedroom_warm_manual)	
+4		set climate2.temperature 4.46	alert_workshop_freezing; alert_workshop_freezing_text = "Det är bara 4.5 °C i verkstaden."	
+5		set climate2.temperature 8	NOT(alert_workshop_freezing)	

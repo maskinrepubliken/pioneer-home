@@ -440,17 +440,30 @@ describe('history functions', () => {
   });
 
   it('HOLD', () => {
-    expect(ev('HOLD(motion, 10m)', ctx)).toBe(true);
-    expect(ev('HOLD(motion, 15m)', ctx)).toBe(true);
-    expect(ev('HOLD(motion, 20m)', ctx)).toBe(false);
+    // last FALSE 15 min ago, but the last change (to TRUE) was 5 min ago: TRUE without a break for 5 min
+    expect(ev('HOLD(motion, 4m)', ctx)).toBe(true);
+    expect(ev('HOLD(motion, 5m)', ctx)).toBe(true);
+    expect(ev('HOLD(motion, 10m)', ctx)).toBe(false);
     expect(ev('HOLD(door, 1m)', ctx)).toBe(false);
     expect(ev('HOLD(motion, NULL)', ctx)).toBeNull();
-    // TRUE, but never seen FALSE: unknown how long.
+    // TRUE, never seen FALSE and no change recorded: unknown how long.
     const fresh = fakeCtx({ values: { motion: true } });
     expect(ev('HOLD(motion, 1m)', fresh)).toBeNull();
+    // NULL -> TRUE 5 minutes ago, never FALSE: TRUE for 5 minutes.
+    const restarted = fakeCtx({ values: { motion: true }, since: { motion: dur(5 * 60_000) } });
+    expect(ev('HOLD(motion, 4m)', restarted)).toBe(true);
+    expect(ev('HOLD(motion, 6m)', restarted)).toBe(false);
     // NULL cell.
     expect(ev('HOLD(unknown, 1m)', fresh)).toBeNull();
     expect(runtimeError('HOLD(temp, 1m)', ctx).message).toBe('HOLD expects a boolean as argument 1, got number');
+  });
+
+  it('SHARE', () => {
+    const c = fakeCtx({ values: { heating: true }, share: { 'heating|900000': 0.25 } });
+    expect(ev('SHARE(heating, 15m)', c)).toBe(0.25);
+    expect(ev('ROUND(SHARE(heating, 15m) * 100)', c)).toBe(25);
+    expect(ev('SHARE(heating, 1h)', c)).toBeNull();
+    expect(ev('SHARE(heating, NULL)', c)).toBeNull();
   });
 
   it('non-ref argument is a runtime error', () => {

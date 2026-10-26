@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Cell } from '../lib/api';
-  import { dateTime, formatValue, isTimestamp, onOff, relativeTime } from '../lib/format';
+  import { dateTime, formatValue, isTimestamp, onOff, relativeTime, trueFalse, yesNo } from '../lib/format';
   import { home } from '../lib/state.svelte';
 
   let { cell, showAge = true }: { cell: Cell; showAge?: boolean } = $props();
@@ -17,11 +17,16 @@
 
 <span class="cell-value" {title}>
   {#if typeof v === 'boolean'}
-    <span class="pill" class:on={v} class:off={!v}>{onOff(v)}</span>
+    {#if cell.settable}
+      <span class="pill" class:on={v} class:off={!v}>{cell.kind === 'var' ? yesNo(v) : onOff(v)}</span>
+    {:else}
+      <!-- a fact, not a switch: outlined either way, the word carries the value -->
+      <span class="pill fact" class:false={!v}>{trueFalse(v)}</span>
+    {/if}
   {:else if v === null}
     <span class="pill neutral">NULL</span>
   {:else}
-    <span class="val" class:mono={typeof v === 'string' && v.length > 12}>{text}</span>
+    <span class="val value" class:mono={typeof v === 'string' && v.length > 12}>{text}</span>
   {/if}
   {#if showAge && age}
     <span class="age">{age}</span>
@@ -51,5 +56,13 @@
     font-size: 12px;
     line-height: 1.4;
     color: var(--ink-faint);
+  }
+  .fact {
+    background: var(--paper);
+    border-color: var(--line-strong);
+    color: var(--ink);
+  }
+  .fact.false {
+    color: var(--ink-muted);
   }
 </style>

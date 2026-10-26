@@ -7,8 +7,9 @@
   const NAV: { id: View; label: string }[] = [
     { id: 'live', label: 'Live' },
     { id: 'tables', label: 'Tabeller' },
-    { id: 'trace', label: 'Spår' },
-    { id: 'history', label: 'Historik' },
+    { id: 'trace', label: 'Logg' },
+    { id: 'history', label: 'Grafer' },
+    { id: 'costs', label: 'Kostnader' },
   ];
 
   let busy = $state<string | null>(null);
@@ -18,13 +19,22 @@
     busy = null;
   }
   const sequences = $derived(home.tables?.sequences ?? []);
+
+  /** The house's name: setting `title` in settings.tsv, "pioneer-home" when it is empty. Also the browser tab title. */
+  const title = $derived.by(() => {
+    const v = home.cells['title']?.value;
+    return typeof v === 'string' && v.trim() ? v.trim() : 'pioneer-home';
+  });
+  $effect(() => {
+    document.title = title;
+  });
 </script>
 
 <header>
   <div class="bar">
-    <a class="brand" href="#/live" aria-label="pioneer-home">
+    <a class="brand" href="#/live" aria-label={title}>
       <span class="dot" class:ok={home.connected} title={home.connected ? 'ansluten' : 'frånkopplad, återansluter…'}></span>
-      <span class="title">pioneer-home</span>
+      <span class="title">{title}</span>
       <span class="conn">{home.connected ? 'ansluten' : 'frånkopplad'}</span>
     </a>
     <nav>

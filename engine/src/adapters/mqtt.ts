@@ -29,12 +29,12 @@ export class MqttTransport implements Transport {
     this.client.on('reconnect', () => log.warn('mqtt reconnecting'));
     this.client.on('error', (e) => log.error({ err: e }, 'mqtt error'));
     this.client.on('close', () => log.warn('mqtt connection closed'));
-    this.client.on('message', (topic, payload) => {
+    this.client.on('message', (topic, payload, packet) => {
       const text = payload.toString('utf8');
       for (const s of this.subs) {
         if (topicMatches(s.filter, topic)) {
           try {
-            s.handler(topic, text);
+            s.handler(topic, text, packet.retain);
           } catch (e) {
             log.error({ err: e, topic }, 'message handler failed');
           }

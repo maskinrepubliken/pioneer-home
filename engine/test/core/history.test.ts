@@ -30,6 +30,24 @@ function setup(history: string, start = '2026-09-23T12:00') {
 }
 
 describe('HistoryTracker', () => {
+  it('does not write a record while a device it reads cannot be reached', () => {
+    const { sim, rows } = setup(
+      'record\tcollection\tfield\tformula\tscale\tmin_interval\tmin_delta\n' +
+        'climate_1\tclimate\tsensor\t"climate1"\t\t\t\n' +
+        'climate_1\tclimate\ttemperature\tbedroom.climate.temperature\t\t\t0.2\n',
+    );
+    sim.mqtt('home/gpio/climate1', '{"temperature":21.4}');
+    expect(rows).toHaveLength(1);
+    sim.set('bedroom.climate.available', 'FALSE');
+    sim.set('bedroom.climate.temperature', '18');
+    expect(rows).toHaveLength(1);
+    // a live report makes it reachable again and is written
+    sim.mqtt('home/gpio/climate1', '{"temperature":19}');
+    expect(sim.get('bedroom.climate.available')).toBe(true);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]!.fields['temperature']).toBe(19);
+  });
+
   it('writes one record with all fields when a numeric field moves enough, applying scale', () => {
     const { sim, rows } = setup(
       'record\tcollection\tfield\tformula\tscale\tmin_interval\tmin_delta\n' +

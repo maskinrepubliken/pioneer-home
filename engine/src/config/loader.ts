@@ -12,8 +12,14 @@ import { getKind, KINDS, parseTargets } from '../core/kinds.js';
 import { ActionParseError, actionFormulas, parseActions } from './actions.js';
 import type { ConfigError } from './errors.js';
 import {
+  ALERT_LEVELS,
+  APPLIANCE_GROUPS,
+  DEFAULT_GROUP_BY_KIND,
   SYSTEM_CELLS,
+  type ApplianceGroup,
   type ActionDef,
+  type AlertDef,
+  type AlertLevel,
   type CellDef,
   type Config,
   type DerivedDef,
@@ -35,9 +41,34 @@ export type LoadResult = { ok: true; config: Config; warnings: ConfigError[] } |
 const ID_RE = /^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)*$/;
 const DAY_NAMES: Record<string, number> = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7 };
 
-export const TABLE_FILES = ['settings', 'rooms', 'devices', 'cells', 'scenes', 'rules', 'sequences', 'history'] as const;
+export const TABLE_FILES = ['settings', 'rooms', 'devices', 'cells', 'scenes', 'rules', 'sequences', 'alerts', 'history'] as const;
 /** Older layouts: still read when present so a checkout can be migrated one table at a time. */
 const LEGACY_FILES = ['vars', 'derived'] as const;
+
+/**
+ * alerts.tsv `text` -> a formula: literal text in quotes, `{formula}` parts joined with `&`.
+ * `Bara {green.temperature} °C` -> `"Bara " & (green.temperature) & " °C"`.
+ */
+export function templateFormula(text: string): string {
+  const lit = (s: string) => `"${s.replace(/"/g, '""')}"`;
+  const parts: string[] = [];
+  let i = 0;
+  while (i < text.length) {
+    const open = text.indexOf('{', i);
+    if (open < 0) {
+      parts.push(lit(text.slice(i)));
+      break;
+    }
+    if (open > i) parts.push(lit(text.slice(i, open)));
+    const close = text.indexOf('}', open);
+    if (close < 0) throw new Error(`"{" without a closing "}" in "${text}"`);
+    const inner = text.slice(open + 1, close).trim();
+    if (!inner) throw new Error(`empty {} in "${text}"`);
+    parts.push(`(${inner})`);
+    i = close + 1;
+  }
+  return parts.length ? parts.join(' & ') : '""';
+}
 
 export function loadConfig(dir: string): LoadResult {
   const errors: ConfigError[] = [];
@@ -69,6 +100,15 @@ export function loadConfig(dir: string): LoadResult {
     const e: ConfigError = { file: table.file, line: typeof row === 'number' ? row : row.line, message };
     if (column) e.column = column;
     errors.push(e);
+  };
+
+  /** Reads the optional `group` column; returns null (after reporting) when the value is not a known group. */
+  const parseGroup = (table: TsvTable, row: TsvRow, fallback: ApplianceGroup): ApplianceGroup | null => {
+    const g = (row.cells['group'] ?? '').trim().toLowerCase();
+    if (!g) return fallback;
+    if ((APPLIANCE_GROUPS as readonly string[]).includes(g)) return g as ApplianceGroup;
+    err(table, row, `unknown group "${row.cells['group']}" (${APPLIANCE_GROUPS.join(', ')})`, 'group');
+    return null;
   };
 
   // ---- cells registry --------------------------------------------------------------------
@@ -156,11 +196,19 @@ export function loadConfig(dir: string): LoadResult {
         err(tb, row, `unknown room "${room}" (rooms.tsv has: ${[...rooms.keys()].join(', ')})`, 'room');
         continue;
       }
-      const def: DeviceDef = { id, room, kind, source, name: row.cells['name'] || id, note: row.cells['note'] ?? '', file: tb.file, line: row.line };
+      const group = parseGroup(tb, row, DEFAULT_GROUP_BY_KIND[kind.name] ?? 'other');
+      if (!group) continue;
+      const wattsText = row.cells['watts'] ?? '';
+      const watts = wattsText === '' ? null : Number(wattsText);
+      if (watts !== null && !(Number.isFinite(watts) && watts > 0)) {
+        err(tb, row, `watts must be a positive number (rated power in W), got "${wattsText}"`, 'watts');
+        continue;
+      }
+      const def: DeviceDef = { id, room, group, kind, source, name: row.cells['name'] || id, note: row.cells['note'] ?? '', watts, file: tb.file, line: row.line };
       devices.set(id, def);
       for (const c of kind.cells) {
         addCell(
-          { id: `${id}.${c.prop}`, type: c.type, kind: 'input', device: id, prop: c.prop, settable: !!c.settable, transient: !!c.transient },
+          { id: `${id}.${c.prop}`, type: c.type, kind: 'input', device: id, prop: c.prop, group, settable: !!c.settable, transient: !!c.transient },
           tb,
           row,
         );
@@ -220,9 +268,12 @@ export function loadConfig(dir: string): LoadResult {
     }
     const room = cellRoom(tb, row);
     if (room === undefined) return;
-    vars.set(id, { id, type, initial, room, file: tb.file, line: row.line });
-    const def: CellDef = { id, type, kind: 'var', settable: true, transient: false };
+    const group = parseGroup(tb, row, 'other');
+    if (!group) return;
+    vars.set(id, { id, type, initial, room, group, file: tb.file, line: row.line });
+    const def: CellDef = { id, type, kind: 'var', group, settable: true, transient: false };
     if (room) def.room = room;
+    if (row.cells['name']) def.name = row.cells['name'];
     addCell(def, tb, row);
   };
   for (const row of cellsTb.rows) if (!(row.cells['formula'] ?? '')) addVar(cellsTb, row);
@@ -235,17 +286,59 @@ export function loadConfig(dir: string): LoadResult {
   const resolve = (ref: string): string => aliases.get(ref) ?? ref;
   const refTypes = (ref: string): ValueType | undefined => cells.get(resolve(ref))?.type;
 
+  // ---- alerts: each row becomes two derived cells, compiled with the others below ------------
+  const alertRows: { tb: TsvTable; row: TsvRow; id: string; level: AlertLevel; cell: string; textCell: string; room: string | null }[] = [];
+  const alertFormulaRows = (): { tb: TsvTable; row: TsvRow; col: string }[] => {
+    const tb = t('alerts');
+    if (!tb.rows.length) return [];
+    errors.push(...requireColumns(tb, ['id', 'level', 'if', 'text']));
+    const out: { tb: TsvTable; row: TsvRow; col: string }[] = [];
+    for (const row of tb.rows) {
+      const id = row.cells['id'] ?? '';
+      if (!/^[a-z_][a-z0-9_]*$/.test(id)) {
+        err(tb, row, `bad alert id "${id}" (lowercase letters, digits and _)`, 'id');
+        continue;
+      }
+      const level = (row.cells['level'] ?? '').toLowerCase() as AlertLevel;
+      if (!ALERT_LEVELS.includes(level)) {
+        err(tb, row, `level must be one of ${ALERT_LEVELS.join(', ')}`, 'level');
+        continue;
+      }
+      if (!(row.cells['if'] ?? '')) {
+        err(tb, row, 'if is empty: when should the banner show?', 'if');
+        continue;
+      }
+      let text: string;
+      try {
+        text = templateFormula(row.cells['text'] ?? '');
+      } catch (e) {
+        err(tb, row, (e as Error).message, 'text');
+        continue;
+      }
+      const room = cellRoom(tb, row);
+      if (room === undefined) continue;
+      const cell = `alert_${id}`;
+      const textCell = `${cell}_text`;
+      alertRows.push({ tb, row, id, level, cell, textCell, room });
+      const base = room ? { room } : {};
+      out.push({ tb, row: { line: row.line, cells: { ...base, id: cell, formula: row.cells['if'] ?? '' } }, col: 'if' });
+      out.push({ tb, row: { line: row.line, cells: { ...base, id: textCell, formula: text } }, col: 'text' });
+    }
+    return out;
+  };
+
   // ---- derived (typed in dependency order) ----------------------------------------------
   const derived = new Map<string, DerivedDef>();
   {
     const legacy = t('derived');
     if (legacy.rows.length) errors.push(...requireColumns(legacy, ['id', 'formula']));
-    const formulaRows: { tb: TsvTable; row: TsvRow }[] = [
+    const formulaRows: { tb: TsvTable; row: TsvRow; col?: string }[] = [
       ...cellsTb.rows.filter((row) => (row.cells['formula'] ?? '') !== '').map((row) => ({ tb: cellsTb, row })),
       ...legacy.rows.map((row) => ({ tb: legacy, row })),
+      ...alertFormulaRows(),
     ];
-    const pending: { tb: TsvTable; row: TsvRow; id: string; ast: Ast; refs: string[]; room: string | null }[] = [];
-    for (const { tb, row } of formulaRows) {
+    const pending: { tb: TsvTable; row: TsvRow; col: string; id: string; ast: Ast; refs: string[]; room: string | null; group: ApplianceGroup; name: string }[] = [];
+    for (const { tb, row, col = 'formula' } of formulaRows) {
       const id = row.cells['id'] ?? '';
       if (!ID_RE.test(id)) {
         err(tb, row, `bad derived id "${id}"`, 'id');
@@ -258,17 +351,20 @@ export function loadConfig(dir: string): LoadResult {
       const src = row.cells['formula'] ?? '';
       const room = cellRoom(tb, row);
       if (room === undefined) continue;
+      const group = parseGroup(tb, row, 'other');
+      if (!group) continue;
       try {
         const ast = formula.parse(src);
-        pending.push({ tb, row, id, ast, refs: formula.refs(ast).map(resolve), room });
+        pending.push({ tb, row, col, id, ast, refs: formula.refs(ast).map(resolve), room, group, name: row.cells['name'] ?? '' });
       } catch (e) {
-        err(tb, row, formulaMessage(e), 'formula');
+        err(tb, row, formulaMessage(e), col);
       }
     }
     // Register with type 'any' first so forward references resolve, then infer in topo order.
     for (const p of pending) {
-      const def: CellDef = { id: p.id, type: 'any', kind: 'derived', settable: false, transient: false };
+      const def: CellDef = { id: p.id, type: 'any', kind: 'derived', group: p.group, settable: false, transient: false };
       if (p.room) def.room = p.room;
+      if (p.name) def.name = p.name;
       cells.set(p.id, def);
     }
     const pendingIds = new Set(pending.map((p) => p.id));
@@ -285,7 +381,7 @@ export function loadConfig(dir: string): LoadResult {
           continue;
         }
         const check = formula.typeCheck(p.ast, refTypes);
-        for (const e of check.errors) err(p.tb, p.row, e.message, 'formula');
+        for (const e of check.errors) err(p.tb, p.row, e.message, p.col);
         cells.get(p.id)!.type = check.type;
         derived.set(p.id, {
           id: p.id,
@@ -295,6 +391,7 @@ export function loadConfig(dir: string): LoadResult {
           timeDependent: formula.isTimeDependent(p.ast),
           refs: p.refs,
           room: p.room,
+          group: p.group,
           file: p.tb.file,
           line: p.row.line,
         });
@@ -304,8 +401,20 @@ export function loadConfig(dir: string): LoadResult {
       remaining = next;
     }
     for (const p of remaining) {
-      err(p.tb, p.row, `formula is part of a dependency cycle: ${[p.id, ...p.refs.filter((r) => pendingIds.has(r) && !done.has(r))].join(' -> ')}`, 'formula');
+      err(p.tb, p.row, `formula is part of a dependency cycle: ${[p.id, ...p.refs.filter((r) => pendingIds.has(r) && !done.has(r))].join(' -> ')}`, p.col);
     }
+  }
+
+  // ---- alerts (their cells were compiled with the derived ones above) --------------------
+  const alerts: AlertDef[] = [];
+  for (const a of alertRows) {
+    const cond = derived.get(a.cell);
+    const text = derived.get(a.textCell);
+    if (!cond || !text) continue; // formula errors already reported
+    if (cond.type !== 'boolean' && cond.type !== 'any') err(a.tb, a.row, `if must be TRUE or FALSE, got ${cond.type}`, 'if');
+    cells.get(a.cell)!.alert = { id: a.id, level: a.level, role: 'if' };
+    cells.get(a.textCell)!.alert = { id: a.id, level: a.level, role: 'text' };
+    alerts.push({ id: a.id, level: a.level, cell: a.cell, textCell: a.textCell, room: a.room, file: a.tb.file, line: a.row.line });
   }
 
   const classify = (name: string): 'device' | 'var' | undefined => (devices.has(name) ? 'device' : vars.has(name) ? 'var' : undefined);
@@ -317,6 +426,15 @@ export function loadConfig(dir: string): LoadResult {
         for (const e of formula.typeCheck(f.ast, refTypes).errors) err(table, row, `in {${f.source}}: ${e.message}`, column);
       }
       if ((a.kind === 'set-device' || a.kind === 'fade') && !devices.has(a.device)) err(table, row, `unknown device "${a.device}"`, column);
+      if (a.kind === 'set-room') {
+        if (rooms.size && !rooms.has(a.room)) err(table, row, `unknown room "${a.room}" in "${a.source}"`, column);
+        const literal = a.tokens.filter((tk) => tk.every((p) => p.kind === 'text')).map((tk) => tk.map((p) => (p.kind === 'text' ? p.text : '')).join(''));
+        try {
+          KINDS[a.deviceKind]!.toPayload(parseTargets(literal), () => null);
+        } catch (e) {
+          err(table, row, `${a.source}: ${(e as Error).message}`, column);
+        }
+      }
       if (a.kind === 'set-device' || a.kind === 'fade') {
         // Validate literal-only target tokens now; templated ones are validated when they run.
         const literal = a.tokens.filter((tk) => tk.every((p) => p.kind === 'text')).map((tk) => tk.map((p) => (p.kind === 'text' ? p.text : '')).join(''));
@@ -576,7 +694,7 @@ export function loadConfig(dir: string): LoadResult {
   return {
     ok: true,
     warnings,
-    config: { dir, settings, rooms, devices, vars, derived, scenes, rules, sequences, history, cells, aliases, sinceTargets, timezone, latitude, longitude },
+    config: { dir, settings, rooms, devices, vars, derived, scenes, rules, sequences, alerts, history, cells, aliases, sinceTargets, timezone, latitude, longitude },
   };
 }
 

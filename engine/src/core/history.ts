@@ -6,6 +6,10 @@
  * (fields without min_delta count as changed whenever their value changes). All fields of the
  * record are evaluated and written together, so a PocketBase row always has sensor, location,
  * temperature and humidity even when only the temperature moved.
+ *
+ * A record that reads a device which cannot be reached is not written: `.available` is FALSE, or the device has
+ * not reported live for STALE_MS. Otherwise a dead device's last (retained) value would be written again and
+ * again by the heartbeat and look like a real, flat measurement.
  */
 import type { HistoryRecordDef } from '../config/model.js';
 import type { Engine } from './engine.js';
@@ -23,6 +27,9 @@ export interface HistoryRow {
 export interface HistorySink {
   write(row: HistoryRow): void;
 }
+
+/** A device silent for longer than this counts as unreachable for history (live sensors report far more often). */
+export const STALE_MS = 6 * 3_600_000;
 
 interface RecordState {
   lastWrittenAt: number | null;
@@ -49,13 +56,28 @@ export class HistoryTracker {
     engine.onChanges((changes, at) => this.onChanges(changes, at));
   }
 
+  /** Devices read by a record (through device prop cells) that are unreachable right now. */
+  unreachable(def: HistoryRecordDef): string[] {
+    const now = this.engine.now();
+    const devices = new Set<string>();
+    for (const r of def.refs) {
+      const d = this.engine.config.cells.get(r)?.device;
+      if (d) devices.add(d);
+    }
+    return [...devices].filter((d) => {
+      if (this.engine.store.get(`${d}.available`) === false) return true;
+      const seen = this.engine.store.get(`${d}.last_seen`);
+      return seen instanceof Timestamp && now - seen.ms > STALE_MS;
+    });
+  }
+
   /** Re-writes records whose max_interval has passed without a write (called by the heartbeat timer). */
   private heartbeat(def: HistoryRecordDef): void {
     const st = this.states.get(def.record);
     if (!st || !def.maxInterval) return;
     st.heartbeat = null;
     const now = this.engine.now();
-    if (st.lastWrittenAt !== null && now - st.lastWrittenAt >= def.maxInterval.ms - 50) {
+    if (st.lastWrittenAt !== null && now - st.lastWrittenAt >= def.maxInterval.ms - 50 && !this.unreachable(def).length) {
       const values = new Map<string, Value>();
       for (const f of def.fields) {
         try {
@@ -123,6 +145,7 @@ export class HistoryTracker {
     // Do not write rows whose formula refs are all still NULL (sensor has not reported yet).
     const allNull = def.fields.filter((f) => f.refs.length > 0).every((f) => values.get(f.field) === null);
     if (allNull) return;
+    if (this.unreachable(def).length) return;
 
     const interval = def.minInterval?.ms ?? 0;
     if (st.lastWrittenAt !== null && interval > 0 && at - st.lastWrittenAt < interval) {

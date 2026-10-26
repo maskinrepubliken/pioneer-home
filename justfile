@@ -82,7 +82,8 @@ deploy: check test bundle
 
 # Fetch tables edited through the UI on the Pi into the working copy (then review with git diff and commit)
 pull-tables:
-    rsync -az --exclude .git --exclude '*.tmp' {{pi}}:{{remote}}/tables/ tables/
+    # --update: a local file newer than the Pi's copy (an edit not deployed yet) is never overwritten
+    rsync -az --update --exclude .git --exclude '*.tmp' {{pi}}:{{remote}}/tables/ tables/
     if [ -d tables/.git ]; then git -C tables status --short; fi
 
 # Tables only: hot reloaded by the running engine, no restart. Refuses when tables/ has uncommitted changes,

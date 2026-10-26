@@ -1,0 +1,5 @@
+# A room target temperature is pushed to every thermostat in the room, resolved when the rule runs.
+step	at	do	expect	note
+1	2026-09-28T12:00		nothing sent	startup never pushes the target
+2		set living_room_target 22	sent floor2 occupied_heating_setpoint=22	the living room has one thermostat
+3		set study_target 19.5	sent floor1 occupied_heating_setpoint=19.5; sent heater1 occupied_heating_setpoint=19.5	both thermostats in the study

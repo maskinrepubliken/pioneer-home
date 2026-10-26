@@ -13,6 +13,8 @@ export interface FakeCtxOptions {
   changed?: string[];
   /** Keyed by `ref` (SINCE(ref)) or `ref|<formatValue(value)>` (SINCE(ref, value)). Missing = null. */
   since?: Record<string, Duration | null>;
+  /** Keyed by `ref|<window ms>` (SHARE(ref, window)). Missing = null. */
+  share?: Record<string, number | null>;
   now?: number;
   tz?: string;
 }
@@ -22,6 +24,7 @@ export function fakeCtx(opts: FakeCtxOptions = {}): EvalContext {
   const prev = new Map(Object.entries(opts.prev ?? {}));
   const changed = new Set(opts.changed ?? []);
   const since = new Map(Object.entries(opts.since ?? {}));
+  const share = new Map(Object.entries(opts.share ?? {}));
   const now = opts.now ?? DEFAULT_NOW;
   const tz = opts.tz ?? TZ;
   return {
@@ -29,6 +32,7 @@ export function fakeCtx(opts: FakeCtxOptions = {}): EvalContext {
     prev: (ref) => prev.get(ref) ?? null,
     changed: (ref) => changed.has(ref),
     since: (ref, value) => since.get(value === undefined ? ref : `${ref}|${formatValue(value)}`) ?? null,
+    share: (ref, windowMs) => share.get(`${ref}|${windowMs}`) ?? null,
     now: () => now,
     tz,
     // Fixed offsets from local midnight: sunrise 06:00, sunset 18:00.

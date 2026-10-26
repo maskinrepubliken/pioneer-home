@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { loadConfig, parseDays, parseScheduleTime, parseTrigger } from '../../src/config/loader.js';
+import { loadConfig, parseDays, parseScheduleTime, parseTrigger, templateFormula } from '../../src/config/loader.js';
 import { parseTsv } from '../../src/config/tsv.js';
 
 const EXAMPLE_TABLES = resolve(__dirname, '../../../example/tables');
@@ -127,5 +127,74 @@ describe('rooms', () => {
     expect(ok.ok).toBe(true);
     if (!ok.ok) return;
     expect(ok.config.cells.get('lamp1.room')?.type).toBe('string');
+  });
+});
+
+describe('appliance groups', () => {
+  it('defaults the group from the device kind, accepts overrides and rejects unknown groups', () => {
+    const ok = loadConfig(
+      tablesDir({
+        'devices.tsv': 'id\troom\tkind\tgroup\tsource\nlamp1\thall\tlight\t\tz2m:L1\nplug1\thall\tplug\tair\tz2m:P1\n',
+        'cells.tsv': 'id\tformula\tinitial\ttype\tgroup\nauto\t\tTRUE\t\tair\ncalc\t1 + 1\t\t\t\n',
+      }),
+    );
+    if (!ok.ok) throw new Error(ok.errors.map((e) => e.message).join('\n'));
+    expect(ok.config.devices.get('lamp1')?.group).toBe('light');
+    expect(ok.config.devices.get('plug1')?.group).toBe('air');
+    expect(ok.config.cells.get('plug1.state')?.group).toBe('air');
+    expect(ok.config.cells.get('auto')?.group).toBe('air');
+    expect(ok.config.cells.get('calc')?.group).toBe('other');
+    const bad = loadConfig(tablesDir({ 'devices.tsv': 'id\troom\tkind\tgroup\tsource\nlamp1\thall\tlight\tlamps\tz2m:L1\n' }));
+    expect(bad.ok).toBe(false);
+    if (bad.ok) return;
+    expect(bad.errors[0]?.message).toMatch(/unknown group "lamps"/);
+  });
+});
+
+describe('alerts.tsv', () => {
+  it('compiles a text template into a formula', () => {
+    expect(templateFormula('Bara {hall.motion} kvar')).toBe('"Bara " & (hall.motion) & " kvar"');
+    expect(templateFormula('säg "hej"')).toBe('"säg ""hej"""');
+    expect(templateFormula('')).toBe('""');
+    expect(() => templateFormula('öppen {x')).toThrow(/closing/);
+  });
+
+  it('turns each row into a condition cell and a text cell, with room and level', () => {
+    const dir = tablesDir({
+      'rooms.tsv': 'id\tname\nhall\thall\n',
+      'cells.tsv': 'id\tformula\tinitial\ttype\nlimit\t10\t\t\nauto\t\tTRUE\tboolean\n',
+      'alerts.tsv': 'id\tlevel\tif\ttext\troom\ncold\twarning\tAND(NOT(auto), limit > 5)\tBara {limit} grader\thall\n',
+    });
+    const res = loadConfig(dir);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.config.alerts).toEqual([expect.objectContaining({ id: 'cold', level: 'warning', cell: 'alert_cold', textCell: 'alert_cold_text', room: 'hall' })]);
+    expect(res.config.cells.get('alert_cold')).toMatchObject({ kind: 'derived', type: 'boolean', room: 'hall', alert: { id: 'cold', level: 'warning', role: 'if' } });
+    expect(res.config.cells.get('alert_cold_text')).toMatchObject({ type: 'string', alert: { role: 'text' } });
+  });
+
+  it('reports bad rows at alerts.tsv:line [column]', () => {
+    const dir = tablesDir({
+      'alerts.tsv': 'id\tlevel\tif\ttext\na\tpanic\tTRUE\tx\nb\tinfo\t1 + 1\tx\nc\tinfo\tnope.cell\tx\nd\tinfo\tTRUE\t{nope\n',
+    });
+    const res = loadConfig(dir);
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    const where = res.errors.map((e) => `${e.file}:${e.line} [${e.column}]`);
+    expect(where).toEqual(expect.arrayContaining(['alerts.tsv:2 [level]', 'alerts.tsv:3 [if]', 'alerts.tsv:4 [if]', 'alerts.tsv:5 [text]']));
+  });
+});
+
+describe('devices.tsv watts', () => {
+  it('reads the optional rated power and rejects anything but a positive number', () => {
+    const ok = loadConfig(tablesDir({ 'devices.tsv': 'id\troom\tkind\tsource\twatts\nheater1\thall\tthermostat\tz2m:Heater\t1000\nlamp1\thall\tlight\tz2m:Lamp\t\n' }));
+    expect(ok.ok).toBe(true);
+    if (!ok.ok) return;
+    expect(ok.config.devices.get('heater1')!.watts).toBe(1000);
+    expect(ok.config.devices.get('lamp1')!.watts).toBeNull();
+    const bad = loadConfig(tablesDir({ 'devices.tsv': 'id\troom\tkind\tsource\twatts\nheater1\thall\tthermostat\tz2m:Heater\tmycket\n' }));
+    expect(bad.ok).toBe(false);
+    if (bad.ok) return;
+    expect(bad.errors[0]).toMatchObject({ file: 'devices.tsv', line: 2, column: 'watts' });
   });
 });

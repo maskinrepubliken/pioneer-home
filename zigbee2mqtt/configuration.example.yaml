@@ -49,3 +49,6 @@ devices:
     friendly_name: REMOTE1
   '0x0000000000000008':
     friendly_name: HEATER1
+# report devices that stop answering on <base>/<device>/availability (the engine reads it as <device>.available)
+availability:
+  enabled: true

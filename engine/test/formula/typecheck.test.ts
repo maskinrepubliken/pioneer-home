@@ -98,6 +98,7 @@ describe('typeCheck: result types', () => {
     ['PREV(s)', 'string'],
     ['CHANGED(n)', 'boolean'],
     ['HOLD(b, 10m)', 'boolean'],
+    ['SHARE(b, 15m)', 'number'],
     ['HOLD(hall.light, d)', 'boolean'],
     ['NOW() > TODAY(07:30)', 'boolean'],
     ['SUNSET() - 30m', 'timestamp'],
@@ -183,6 +184,8 @@ describe('typeCheck: errors', () => {
     expect(messages('MINUTES(n)')).toEqual(['MINUTES expects a duration, got number']);
     expect(messages('HOLD(n, 10m)')).toEqual(['HOLD expects a boolean cell as argument 1, got number']);
     expect(messages('HOLD(b, 5)')).toEqual(['HOLD expects a duration as argument 2, got number']);
+    expect(messages('SHARE(n, 15m)')).toEqual(['SHARE expects a boolean cell as argument 1, got number']);
+    expect(messages('SHARE(b, 5)')).toEqual(['SHARE expects a duration as argument 2, got number']);
   });
 
   it('history functions require a cell reference', () => {

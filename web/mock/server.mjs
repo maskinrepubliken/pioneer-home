@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.PORT ?? 8000);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const TABLES = existsSync(join(ROOT, 'tables')) ? join(ROOT, 'tables') : join(ROOT, 'example', 'tables');
+// MOCK_EXAMPLE=1 forces example/tables even when tables/ exists (screenshots, demos).
+const TABLES = existsSync(join(ROOT, 'tables')) && !process.env.MOCK_EXAMPLE ? join(ROOT, 'tables') : join(ROOT, 'example', 'tables');
 const started = Date.now();
 const ts = (ms) => ({ $timestamp: ms });
 
@@ -29,7 +30,10 @@ function parseRows(text) {
 const readTsv = (file) => parseRows(readFileSync(join(TABLES, file), 'utf8'));
 let rooms = readTsv('rooms.tsv').map((r) => ({ id: r.id, name: r.name || r.id }));
 const roomNameOf = (id) => rooms.find((r) => r.id === id)?.name ?? (id || null);
-const devices = readTsv('devices.tsv').map((r) => ({ id: r.id, room: r.room, kind: r.kind, name: r.name || r.id }));
+// Appliance group as the engine does it: the `group` column, or the default for the kind.
+const KIND_GROUP = { light: 'light', thermostat: 'heating', pwm: 'air', climate: 'air', motion: 'sensors', contact: 'sensors', remote: 'other', plug: 'other' };
+const groupOf = (r) => r.group || KIND_GROUP[r.kind] || 'other';
+const devices = readTsv('devices.tsv').map((r) => ({ id: r.id, room: r.room, kind: r.kind, group: groupOf(r), name: r.name || r.id }));
 const OFFLINE = new Set(['floor2']); // not seen since January: shows the offline state
 
 const props = {
@@ -40,7 +44,7 @@ const props = {
   remote: { action: ['string', null], battery: ['number', 100], linkquality: ['number', 130] },
   climate: { temperature: ['number', 18.7], humidity: ['number', 54], linkquality: ['number', null] },
   pwm: { level: ['number', 40] },
-  contact: { contact: ['boolean', true], battery: ['number', 95], linkquality: ['number', 100] },
+  contact: { open: ['boolean', false], battery: ['number', 95], linkquality: ['number', 100] },
 };
 const settable = new Set(['state', 'brightness', 'color_temp', 'color', 'setpoint', 'mode', 'level']);
 
@@ -48,30 +52,44 @@ const cells = new Map();
 const put = (c) => cells.set(c.id, { changedAt: Date.now() - Math.random() * 3.6e6, seenAt: Date.now(), ...c });
 for (const d of devices) {
   const dead = OFFLINE.has(d.id);
+  const base = { device: d.id, room: d.room, group: d.group, name: d.name };
   for (const [prop, [type, value]] of Object.entries(props[d.kind] ?? {})) {
-    put({ id: `${d.id}.${prop}`, value: dead ? null : value, type, kind: 'input', settable: settable.has(prop), device: d.id, prop, room: d.room, name: d.name });
+    put({ id: `${d.id}.${prop}`, value: dead ? null : value, type, kind: 'input', settable: settable.has(prop), prop, ...base });
   }
-  put({ id: `${d.id}.available`, value: !dead, type: 'boolean', kind: 'input', settable: false, device: d.id, prop: 'available', room: d.room, name: d.name });
-  put({ id: `${d.id}.last_seen`, value: ts(Date.now() - 120000), type: 'timestamp', kind: 'input', settable: false, device: d.id, prop: 'last_seen', room: d.room, name: d.name });
-  put({ id: `${d.id}.room`, value: d.room || null, type: 'string', kind: 'input', settable: false, device: d.id, prop: 'room', room: d.room, name: d.name });
-  put({ id: `${d.id}.room_name`, value: roomNameOf(d.room), type: 'string', kind: 'input', settable: false, device: d.id, prop: 'room_name', room: d.room, name: d.name });
+  put({ id: `${d.id}.available`, value: !dead, type: 'boolean', kind: 'input', settable: false, prop: 'available', ...base });
+  put({ id: `${d.id}.last_seen`, value: ts(Date.now() - (dead ? 90 * 86_400_000 : 120000)), type: 'timestamp', kind: 'input', settable: false, prop: 'last_seen', ...base });
+  put({ id: `${d.id}.room`, value: d.room || null, type: 'string', kind: 'input', settable: false, prop: 'room', ...base });
+  put({ id: `${d.id}.room_name`, value: roomNameOf(d.room), type: 'string', kind: 'input', settable: false, prop: 'room_name', ...base });
 }
-const sys = (id, value, type, kind = 'input') => put({ id, value, type, kind, settable: kind === 'var', device: null, prop: null, room: null, name: null });
-sys('fan_auto', true, 'boolean', 'var');
+const sys = (id, value, type, kind = 'input', room = null, group = null) => put({ id, value, type, kind, settable: kind === 'var', device: null, prop: null, room, group, name: null });
 sys('sun.elevation', 23.4, 'number');
 sys('sun.azimuth', 190, 'number');
 sys('sun.up', true, 'boolean');
-sys('dark', false, 'boolean', 'derived');
-sys('night_window', false, 'boolean', 'derived');
-sys('late_night', false, 'boolean', 'derived');
-sys('fan_target', 48, 'number', 'derived');
-sys('fan_wanted', 0, 'number', 'derived');
-sys('too_dry', false, 'boolean', 'derived');
-sys('too_humid', false, 'boolean', 'derived');
-sys('floor1_heating', true, 'boolean', 'derived');
-sys('floor2_heating', null, 'boolean', 'derived');
-// thresholds are cells.tsv rows with a number as formula
-for (const [id, v] of [['dark_elevation', -3], ['fan_off_temp', 17], ['fan_min_temp', 17.5], ['fan_max_temp', 20], ['humidifier_on_below', 50], ['humidifier_off_above', 60]]) sys(id, v, 'number', 'derived');
+// cells.tsv: a row with a formula is derived (a number formula is a constant), without one it holds `initial`.
+// Values of the computed rows are made up here; room and group come from the table (group defaults to other).
+const FAKE = { dark: false, night_window: false, late_night: false, fan_target: 48, fan_wanted: 0, too_dry: false, too_humid: false, floor1_heating: true, floor2_heating: null };
+const literal = (t) => (t === 'TRUE' ? true : t === 'FALSE' ? false : /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : t === '' ? null : t);
+const typeOf = (v) => (v === null ? 'any' : typeof v === 'string' ? 'string' : typeof v);
+for (const r of readTsv('cells.tsv')) {
+  const room = r.room || null;
+  const group = r.group || 'other';
+  if (r.formula) {
+    const v = r.id in FAKE ? FAKE[r.id] : literal(r.formula);
+    sys(r.id, typeof v === 'string' ? null : v, r.type || typeOf(v), 'derived', room, group);
+  } else {
+    const v = literal(r.initial);
+    sys(r.id, v, r.type || typeOf(v), 'var', room, group);
+  }
+}
+// alerts.tsv: every banner is shown as active so the banners can be worked on; {formula} parts show as "…".
+if (existsSync(join(TABLES, 'alerts.tsv'))) {
+  for (const r of readTsv('alerts.tsv')) {
+    const alert = (role) => ({ id: r.id, level: r.level, role });
+    const base = { settable: false, device: null, prop: null, room: r.room || null, group: 'other', name: null };
+    put({ id: `alert_${r.id}`, value: true, type: 'boolean', kind: 'derived', alert: alert('if'), ...base });
+    put({ id: `alert_${r.id}_text`, value: r.text.replace(/\{[^}]*\}/g, '…'), type: 'string', kind: 'derived', alert: alert('text'), ...base });
+  }
+}
 sys('history_flush', { $duration: 10000 }, 'duration', 'setting');
 sys('weather_interval', { $duration: 1200000 }, 'duration', 'setting');
 sys('timezone', 'Europe/Stockholm', 'string', 'setting');
@@ -88,7 +106,8 @@ function reloadRooms() {
     if (!d) continue;
     d.room = r.room;
     d.name = r.name || d.name;
-    for (const c of cells.values()) if (c.device === d.id) c.room = d.room;
+    d.group = groupOf({ ...r, kind: r.kind || d.kind });
+    for (const c of cells.values()) if (c.device === d.id) Object.assign(c, { room: d.room, group: d.group, name: d.name });
     const rc = cells.get(`${d.id}.room`);
     const nc = cells.get(`${d.id}.room_name`);
     if (rc && rc.value !== (d.room || null)) change(`${d.id}.room`, d.room || null);
@@ -146,7 +165,9 @@ setInterval(() => {
       derived: [{ cell: 'too_dry', from: false, to: false }],
     });
   } else if (r < 0.7) {
-    const occ = !cells.get('motion1.occupancy').value;
+    const motion = cells.get('motion1.occupancy');
+    if (!motion) return; // the random activity uses the example ids; your own tables may not have motion1
+    const occ = !motion.value;
     const fired = occ && Math.random() > 0.5;
     pass('mqtt zigbee2mqtt/MOTION1', [change('motion1.occupancy', occ), change('motion1.illuminance', Math.round(Math.random() * 400))], {
       rules: [{ id: 'remote_on', fired, cond: fired, reason: fired ? 'rising edge' : 'condition FALSE' }],

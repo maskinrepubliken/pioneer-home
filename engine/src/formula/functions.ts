@@ -430,6 +430,25 @@ const DEFINITIONS: FunctionDef[] = [
     check: () => 'boolean',
     call: (node, ctx) => ctx.changed(refName(node, 0)),
   }),
+  def('SHARE', {
+    min: 2,
+    max: 2,
+    time: true,
+    refArgs: [0],
+    check: (argTypes, args, report) => {
+      const [cell, dur] = argTypes as [ValueType, ValueType];
+      if (!isUnknown(cell) && cell !== 'boolean') report(`SHARE expects a boolean cell as argument 1, got ${cell}`, args[0]!.span);
+      if (!isUnknown(dur) && dur !== 'duration') report(`SHARE expects a duration as argument 2, got ${dur}`, args[1]!.span);
+      return 'number';
+    },
+    // Share (0..1) of the last <duration> during which the cell was TRUE: the duty of an on/off heater.
+    call: (node, ctx, ev) => {
+      const dur = ev(node.args[1]!, ctx);
+      if (dur === null) return null;
+      const d = expectDuration(node, 1, dur);
+      return ctx.share(refName(node, 0), d.ms);
+    },
+  }),
   def('HOLD', {
     min: 2,
     time: true,
@@ -448,7 +467,11 @@ const DEFINITIONS: FunctionDef[] = [
       const current = ctx.get(ref) ?? null;
       if (current === null) return null;
       if (expectBoolean(node, 0, current) === false) return false;
-      const since = ctx.since(ref, false);
+      // TRUE now: it has been TRUE without a break since the later of "last FALSE" and "last change". The last change
+      // also answers for a cell that went straight from NULL to TRUE (after a restart), which was never FALSE.
+      const lastFalse = ctx.since(ref, false);
+      const lastChange = ctx.since(ref);
+      const since = lastFalse && lastChange ? (lastFalse.ms < lastChange.ms ? lastFalse : lastChange) : (lastFalse ?? lastChange);
       if (!since) return null;
       return since.ms >= d.ms;
     },

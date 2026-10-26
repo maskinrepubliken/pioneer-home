@@ -109,6 +109,7 @@ export const TABLES: TableDoc[] = [
     columns: [
       { name: 'id', what: 'Enhetens eget namn, samma som i zigbee2mqtt fast med små bokstäver. Aldrig rummet: sensorer flyttar.', example: 'lamp1' },
       { name: 'room', what: 'Rummet enheten står i just nu. Ett id från Rum. Läses i formler som <id>.room och <id>.room_name.', allowed: 'ett id i rooms.tsv', example: 'living_room' },
+      { name: 'group', what: 'Vilken kolumn enheten hamnar i under rummet i Live. Tomt = standard för sorten: lampor Belysning, termostater Värme, fläkt och klimatsensorer Luft och ventilation, rörelse- och dörrsensorer Sensorer, uttag och fjärrkontroller Övrigt.', allowed: 'light, heating, air, sensors, other eller tomt', example: 'air (ett uttag som driver en luftfuktare)' },
       {
         name: 'kind',
         what: 'Slaget. Bestämmer vilka celler enheten har och hur kommandon översätts till zigbee2mqtt.',
@@ -116,6 +117,7 @@ export const TABLES: TableDoc[] = [
         example: 'light',
       },
       { name: 'source', what: 'Var värdena kommer ifrån.', allowed: 'z2m:<vänligt namn> eller mqtt:<ämne>', example: 'z2m:LAMP1' },
+      { name: 'watts', what: 'Märkeffekt i watt. Används för att uppskatta energi och elkostnad på sidan Kostnader. Tomt = räknas inte.', allowed: 'ett positivt tal', example: '1000' },
       { name: 'name', what: 'Visningsnamn på svenska, med åäö. Syns i Live-vyn.', example: 'Lampa LAMP1' },
       { ...NOTE, example: 'Hue colour bulb LCT012' },
     ],
@@ -142,7 +144,9 @@ export const TABLES: TableDoc[] = [
       },
       { name: 'initial', what: 'Startvärde för en cell utan formel, första gången motorn ser den. Tomt betyder NULL (okänt).', example: 'TRUE' },
       { name: 'type', what: 'Värdets typ för en cell utan formel. Kan utelämnas när initial är satt.', allowed: 'number, boolean, string, duration, timeofday, timestamp', example: 'boolean' },
-      { name: 'room', what: 'Rummet cellen hör till, om den hör till ett. Live visar den då under rummet, i kortet Styrning. Tomt = hela huset.', allowed: 'ett id från Rum (rooms.tsv) eller tomt', example: 'bedroom' },
+      { name: 'room', what: 'Rummet cellen hör till, om den hör till ett. Live visar den då i rummets panel. Tomt = hela huset.', allowed: 'ett id från Rum (rooms.tsv) eller tomt', example: 'bedroom' },
+      { name: 'name', what: 'Svensk text som Live visar i stället för id:t, till exempel på ett reglage. Tomt = id:t visas.', example: 'Styr fläkten automatiskt' },
+      { name: 'group', what: 'Vilken kolumn i rummet cellen hör till. Celler med värde visas som reglage där, beräknade celler under rummets Detaljer. Tomt = Övrigt.', allowed: 'light, heating, air, sensors, other eller tomt', example: 'air' },
       { ...NOTE, example: 'fan curve: off at 17, linear 17.5 -> 20, 100% above' },
     ],
   },
@@ -160,7 +164,7 @@ export const TABLES: TableDoc[] = [
       'Ett villkor som är OKÄNT (NULL) fyrar aldrig. Använd COALESCE(cell, standardvärde) när regeln måste agera innan sensorn rapporterat. enabled = no stänger av raden utan att ta bort den. Kolumnen senast utlöst till höger visar när regeln fyrade sist i den här körningen.',
     ],
     columns: [
-      { name: 'id', what: 'Regelns namn. Syns i Spår-vyn när den fyrar.', example: 'humid_on' },
+      { name: 'id', what: 'Regelns namn. Syns i Logg när den fyrar.', example: 'humid_on' },
       {
         name: 'when',
         what: 'När villkoret prövas. Tomt = stigande kant på if (det vanliga). at fyrar på klockan, dagar valfria (daily om inget anges).',
@@ -214,11 +218,32 @@ export const TABLES: TableDoc[] = [
     ],
   },
   {
+    file: 'alerts.tsv',
+    title: 'Larm',
+    group: 'behaviour',
+    purpose: 'Banderoller överst i Live när något kräver uppmärksamhet: en rad per banderoll, med ett villkor och en text.',
+    whenEdit: 'När huset ska säga till: för kallt, för fuktigt, en enhet som inte svarar, en styrning som står avstängd.',
+    example: 'workshop_freezing · danger · climate2.temperature < workshop_min_temp',
+    about: [
+      'Banderollen syns så länge if är SANT och försvinner av sig själv när villkoret inte längre gäller. Farligast först: danger (Fara), sedan warning (Varning) och info.',
+      'text får innehålla {formel}, till exempel {ROUND(climate2.temperature, 1)}, så att banderollen visar det aktuella värdet. room säger vilket rum det gäller; rummets namn blir en länk till rummets panel.',
+      'Varje rad blir två beräknade celler, alert_<id> (villkoret) och alert_<id>_text (texten), som går att använda i regler och scenarier. Lägg trösklarna i Celler.',
+    ],
+    columns: [
+      { name: 'id', what: 'Banderollens namn. Små bokstäver, siffror och _.', example: 'workshop_freezing' },
+      { name: 'level', what: 'Hur allvarligt det är.', allowed: 'info, warning, danger', example: 'danger' },
+      { name: 'if', what: 'Formel som ska vara SANT eller FALSKT. Banderollen syns när den är SANT.', example: 'AND(NOT(fan_auto), climate1.temperature > fan_max_temp)', help: 'formulas' },
+      { name: 'text', what: 'Texten i banderollen. {formel} fylls i med det aktuella värdet.', example: 'Det är bara {ROUND(climate2.temperature, 1)} °C i verkstaden.' },
+      { name: 'room', what: 'Rummet banderollen gäller, ett id från Rum. Tomt = hela huset.', example: 'workshop' },
+      { ...NOTE, example: 'frostrisk för sakerna där' },
+    ],
+  },
+  {
     file: 'history.tsv',
     title: 'Historik',
     group: 'system',
     purpose: 'Vilka celler som sparas till databasen PocketBase, hur ofta och med vilka fältnamn.',
-    whenEdit: 'När en ny mätserie ska loggas eller en kurva i Historik-vyn saknas.',
+    whenEdit: 'När en ny mätserie ska loggas eller en kurva i Grafer saknas.',
     example: 'climate_1 · temperature = climate1.temperature',
     about: [
       'Rader med samma record bildar en post i PocketBase. climate_1 skriver sensor, location, temperature och humidity från DHT22:an climate1 till samlingen climate, högst var 5m och minst var 30m (hjärtslag), och bara om temperaturen rört sig 0.2 grader eller fuktigheten 1 %.',
@@ -245,7 +270,7 @@ export const TABLES: TableDoc[] = [
     whenEdit: 'Nästan aldrig. När Pi:n flyttar, MQTT byter adress eller vädret ska hämtas oftare.',
     example: 'timezone = Europe/Stockholm',
     about: [
-      'Det här är konfiguration för motorn, inte för huset. timezone och latitude/longitude ger klockan och solens läge (SUNRISE, SUNSET, sun.elevation). mqtt_url, z2m_base och gpio_base säger var enheterna finns. history_flush och weather_interval styr hur ofta historik skrivs och väder hämtas.',
+      'Det här är konfiguration för motorn, inte för huset. timezone och latitude/longitude ger klockan och solens läge (SUNRISE, SUNSET, sun.elevation). mqtt_url, z2m_base och gpio_base säger var enheterna finns. history_flush och weather_interval styr hur ofta historik skrivs och väder hämtas. title är namnet i sidhuvudet och webbläsarfliken. price_area (t.ex. SE3) ger spotpriset från elprisetjustnu.se, cellen electricity.price och kostnadsuppskattningen på sidan Kostnader. z2m_frontend och pocketbase_admin är länkarna till zigbee2mqtt och PocketBase i sidfoten: en hel adress, eller :port/sökväg på samma värd som sidan.',
       'Husets egna tal, som trösklar för fläkten och luftfuktaren, står inte här utan i Celler (fan_max_temp, humidifier_on_below). Varje nyckel här är ändå läsbar som en cell, så en formel kan skriva weather_interval om den behöver.',
     ],
     columns: [
@@ -376,6 +401,7 @@ export const FORMULA_SECTIONS: DocSection[] = [
       { code: 'PREV(fan.level)', text: 'värdet före det nuvarande' },
       { code: 'CHANGED(fan_auto)', text: 'sant i det pass cellen ändrades' },
       { code: 'HOLD(too_humid, 2m)', text: 'sant när cellen varit sann oavbrutet så länge' },
+      { code: 'SHARE(heater1_heating, 15m)', text: 'andel (0–1) av de senaste 15 minuterna som cellen varit sann; högst 24 h bakåt' },
     ],
   },
   {
@@ -411,6 +437,7 @@ export const ACTION_SECTIONS: DocSection[] = [
       { code: 'set fan 40', text: 'fläktnivå 0–100, eller börvärde på en termostat' },
       { code: 'set floor1 setpoint=21 mode=heat', text: 'termostat' },
       { code: 'set fan_auto FALSE', text: 'skriv en cell utan formel (ett hållet värde)' },
+      { code: 'set thermostat in living_room setpoint={living_room_target}', text: 'alla enheter av ett slag i ett rum, bestäms när åtgärden körs (flytta en termostat så följer den med)' },
     ],
   },
   {
@@ -461,7 +488,7 @@ export const ACTION_SECTIONS: DocSection[] = [
     title: 'notify, log, script',
     examples: [
       { code: 'notify "Fläkten står stilla"', text: 'skickar texten till MQTT-ämnet home/notify' },
-      { code: 'log "kväll"', text: 'en rad i loggen och i Spår-vyn' },
+      { code: 'log "kväll"', text: 'en rad i motorns logg och i Logg-vyn' },
       { code: 'script morning', text: 'kör tables/scripts/morning.ts. Sista utvägen, skriv varför i note' },
     ],
   },

@@ -1,0 +1,34 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mock",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "web",
+        "mock"
+      ],
+      "port": 8000
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "web",
+        "dev"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "web-pi",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "set -a; . ./.env; exec env VITE_API_TARGET=\"${PI_API_URL:?set PI_API_URL in .env}\" pnpm --filter web exec vite --port 5174"
+      ],
+      "port": 5174
+    }
+  ]
+}

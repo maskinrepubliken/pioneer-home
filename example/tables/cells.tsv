@@ -1,23 +1,27 @@
 # Cells the house computes or holds. A row WITH a formula is recomputed like a spreadsheet cell; a row WITHOUT a formula holds
 # a value until a rule or the UI sets it (initial = its start value; type is optional when initial is given).
-# `room` (optional, an id from rooms.tsv) says which room the cell belongs to; the UI shows it there. Constants such as thresholds are cells too: formula = a number. Time-dependent formulas (TIME, SINCE...) re-evaluate every second.
-id	formula	initial	type	room	note
+# `room` (optional, an id from rooms.tsv) says which room the cell belongs to; `group` (optional: light, heating, air, sensors, other)
+# says which appliance column in that room; `name` is the Swedish text Live shows instead of the id. Held values show as controls there; computed cells sit under Detaljer. Constants such as thresholds are cells too: formula = a number. Time-dependent formulas (TIME, SINCE...) re-evaluate every second.
+id	formula	initial	type	room	group	name	note
 # --- thresholds
-dark_elevation	-3				sun elevation (degrees) below which it counts as dark
-fan_off_temp	17			bedroom	fan is off at or below this temperature
-fan_min_temp	17.5			bedroom	fan curve starts here
-fan_max_temp	20			bedroom	fan is at 100% from here
-humidifier_on_below	50			bedroom	% relative humidity
-humidifier_off_above	60			bedroom	% relative humidity
+dark_elevation	-3					Mörker under solhöjd	sun elevation (degrees) below which it counts as dark
+fan_off_temp	17			bedroom	air	Fläkten av vid eller under	fan is off at or below this temperature
+fan_min_temp	17.5			bedroom	air	Fläktkurvan börjar vid	fan curve starts here
+fan_max_temp	20			bedroom	air	Fläkten på fullt från	fan is at 100% from here
+workshop_min_temp	5			workshop	air	Fara under	farobanner när verkstaden blir kallare
+humidifier_on_below	50			bedroom	air	Luftfuktaren på under	% relative humidity
+humidifier_off_above	60			bedroom	air	Luftfuktaren av över	% relative humidity
 # --- held values
-fan_auto		TRUE	boolean	bedroom	automatic fan and humidifier control in bedroom
+living_room_target		21	number	living_room	heating	Måltemperatur	rummets måltemperatur; värmekällorna i rummet följer den
+study_target		18	number	study	heating	Måltemperatur	rummets måltemperatur; värmekällorna i rummet följer den
+fan_auto		TRUE	boolean	bedroom	air	Styr fläkten automatiskt	automatic fan and humidifier control in bedroom
 # --- computed
-dark	sun.elevation < dark_elevation				
-night_window	BETWEEN(TIME(), 19:30, 06:00)				when the bedroom fan may run
-late_night	BETWEEN(TIME(), 23:00, 05:00)				lamp turns red instead of warm white
-fan_target	IF(climate1.temperature <= fan_off_temp, 0, CLAMP(ROUND((climate1.temperature - fan_min_temp) / (fan_max_temp - fan_min_temp) * 100), 0, 100))			bedroom	fan curve: off at 17, linear 17.5 -> 20, 100% above
-fan_wanted	IF(AND(fan_auto, night_window), fan_target, 0)			bedroom	0 when manual or outside the night window
-too_dry	climate1.humidity < humidifier_on_below			bedroom	
-too_humid	climate1.humidity > humidifier_off_above			bedroom	
-floor1_heating	floor1.mode = "heat"			study	bool for the heating history table
-floor2_heating	floor2.mode = "heat"			living_room	
+dark	sun.elevation < dark_elevation					Mörkt ute	
+night_window	BETWEEN(TIME(), 19:30, 06:00)					Fläktens nattfönster	when the bedroom fan may run
+late_night	BETWEEN(TIME(), 23:00, 05:00)					Sen kväll	lamp turns red instead of warm white
+fan_target	IF(climate1.temperature <= fan_off_temp, 0, CLAMP(ROUND((climate1.temperature - fan_min_temp) / (fan_max_temp - fan_min_temp) * 100), 0, 100))			bedroom	air	Fläktkurvans nivå	fan curve: off at 17, linear 17.5 -> 20, 100% above
+fan_wanted	IF(AND(fan_auto, night_window), fan_target, 0)			bedroom	air	Önskad fläktnivå	0 when manual or outside the night window
+too_dry	climate1.humidity < humidifier_on_below			bedroom	air	För torrt	
+too_humid	climate1.humidity > humidifier_off_above			bedroom	air	För fuktigt	
+floor1_heating	floor1.mode = "heat"			study	heating	Golvvärme 1 värmer	bool for the heating history table
+floor2_heating	floor2.mode = "heat"			living_room	heating	Golvvärme 2 värmer	

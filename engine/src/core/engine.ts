@@ -11,7 +11,7 @@ import { settingString } from '../config/loader.js';
 import { parseActions } from '../config/actions.js';
 import type { Clock, TimerHandle } from './clock.js';
 import { DependencyGraph } from './graph.js';
-import { parseTargets, type RawState } from './kinds.js';
+import { parseTargets, z2mFailedCommand, type RawState } from './kinds.js';
 import { CellStore, type CellChange, type StoreSnapshot } from './store.js';
 import type { SunProvider } from './sun.js';
 import type { Transport } from './transport.js';
@@ -261,7 +261,13 @@ export class Engine {
   }
 
   /** Feeds a raw MQTT message (real adapter or simulator). */
-  handleMessage(topic: string, payload: string): void {
+  handleMessage(topic: string, payload: string, retained = false): void {
+    if (topic === `${this.z2mBase()}/bridge/logging`) {
+      const friendly = z2mFailedCommand(payload);
+      const failed = friendly === null ? undefined : this.topicToDevice.get(`${this.z2mBase()}/${friendly}`);
+      if (failed) this.applyInputs([{ cell: `${failed.id}.available`, value: false }], `z2m could not reach ${failed.id}`);
+      return;
+    }
     const dev = this.topicToDevice.get(topic);
     if (dev) {
       let raw: RawState;
@@ -273,8 +279,12 @@ export class Engine {
       if (!raw || typeof raw !== 'object') return;
       const cells = dev.kind.fromPayload(raw);
       const changes = Object.entries(cells).map(([prop, value]) => ({ cell: `${dev.id}.${prop}`, value }));
-      const seen = typeof raw['last_seen'] === 'string' ? Date.parse(raw['last_seen']) : typeof raw['last_seen'] === 'number' ? raw['last_seen'] : this.clock.now();
-      changes.push({ cell: `${dev.id}.last_seen`, value: new Timestamp(Number.isNaN(seen) ? this.clock.now() : seen) });
+      const stamp = typeof raw['last_seen'] === 'string' ? Date.parse(raw['last_seen']) : typeof raw['last_seen'] === 'number' ? raw['last_seen'] : null;
+      if (stamp !== null && !Number.isNaN(stamp)) changes.push({ cell: `${dev.id}.last_seen`, value: new Timestamp(stamp) });
+      // A retained message is the broker replaying old state: it says nothing about when the device was last heard.
+      else if (!retained) changes.push({ cell: `${dev.id}.last_seen`, value: new Timestamp(this.clock.now()) });
+      // A live report means the device is reachable again (after a failed command marked it unavailable).
+      if (!retained && this.store.get(`${dev.id}.available`) === false) changes.push({ cell: `${dev.id}.available`, value: true });
       this.applyInputs(changes, `mqtt ${topic}`);
       return;
     }
@@ -419,6 +429,14 @@ export class Engine {
         case 'set-device':
           this.setDevice(action.device, action.tokens.map((t) => this.render(t)), trace, tag);
           return;
+        case 'set-room': {
+          // Resolved now, so a device moved to another room in devices.tsv follows without editing the rule.
+          const tokens = action.tokens.map((t) => this.render(t));
+          const targets = [...this.config.devices.values()].filter((d) => d.kind.name === action.deviceKind && d.room === action.room);
+          if (!targets.length) trace.actions.push({ source: tag, detail: `no ${action.deviceKind} in ${action.room}`, dryRun: this.dryRun });
+          for (const d of targets) this.setDevice(d.id, tokens, trace, `${tag} (${d.id})`);
+          return;
+        }
         case 'fade': {
           const tokens = action.tokens.map((t) => this.render(t));
           tokens.push(`transition=${action.overMs / 1000}s`);
@@ -600,6 +618,7 @@ export class Engine {
       prev: (ref) => this.store.prev(ref),
       changed: (ref) => this.store.changed(ref),
       since: (ref, value) => this.store.since(ref, this.clock.now(), value),
+      share: (ref, windowMs) => this.store.share(ref, this.clock.now(), windowMs),
       now: () => this.clock.now(),
       tz,
       sunrise: (ms) => this.sun.sunrise(ms, localParts(ms, tz).midnightMs),
@@ -651,11 +670,12 @@ export class Engine {
   private subscribeAll(): void {
     if (this.subscribed) return;
     this.subscribed = true;
-    this.transport.subscribe(`${this.z2mBase()}/+`, (t, p) => this.handleMessage(t, p));
-    this.transport.subscribe(`${this.z2mBase()}/+/availability`, (t, p) => this.handleMessage(t, p));
+    this.transport.subscribe(`${this.z2mBase()}/+`, (t, p, r) => this.handleMessage(t, p, r));
+    this.transport.subscribe(`${this.z2mBase()}/+/availability`, (t, p, r) => this.handleMessage(t, p, r));
+    this.transport.subscribe(`${this.z2mBase()}/bridge/logging`, (t, p, r) => this.handleMessage(t, p, r));
     const bases = new Set<string>();
     for (const dev of this.config.devices.values()) if (dev.source.type === 'mqtt') bases.add(dev.source.topic.split('/')[0] ?? '');
-    for (const b of bases) if (b) this.transport.subscribe(`${b}/#`, (t, p) => this.handleMessage(t, p));
+    for (const b of bases) if (b) this.transport.subscribe(`${b}/#`, (t, p, r) => this.handleMessage(t, p, r));
   }
 
   // ---- timers -----------------------------------------------------------------------------

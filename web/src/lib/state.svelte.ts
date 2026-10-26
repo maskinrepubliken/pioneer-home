@@ -125,7 +125,7 @@ async function loadTraces(): Promise<void> {
     home.ruleFiredAt = {};
     for (const t of list) pushTrace(t);
   } catch (e) {
-    notify(`spår: ${(e as Error).message}`, true);
+    notify(`logg: ${(e as Error).message}`, true);
   }
 }
 

@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Header from './components/Header.svelte';
+  import Footer from './components/Footer.svelte';
   import Live from './views/Live.svelte';
   import Tables from './views/Tables.svelte';
   import Trace from './views/Trace.svelte';
   import History from './views/History.svelte';
+  import Costs from './views/Costs.svelte';
   import { home, startHome } from './lib/state.svelte';
   import { closeEdit, isDirty, showGuard, tableEdit } from './lib/tableEdit.svelte';
   import { parseRoute, tableHash, type Route } from './lib/routes';
@@ -50,10 +52,14 @@
     <Tables file={route.file} />
   {:else if route.view === 'trace'}
     <Trace />
+  {:else if route.view === 'costs'}
+    <Costs />
   {:else}
     <History />
   {/if}
 </main>
+
+<Footer />
 
 {#if home.notice}
   <div class="notice" class:error={home.notice.error} role="status">{home.notice.text}</div>

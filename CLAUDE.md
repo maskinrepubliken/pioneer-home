@@ -66,14 +66,19 @@ TSV: tab-separated, no quoting, `#` comment lines, header row, columns matched b
 
 | table | columns | notes |
 |---|---|---|
-| `settings.tsv` | key, value, note | engine configuration (System); every key is a cell |
-| `rooms.tsv` | id, name, note | room ids and Swedish names; `name` becomes `<device>.room_name` and the `location` in climate history |
-| `devices.tsv` | id, room, kind, source, name, note | id = stable device name, room ∈ rooms.tsv; kind ∈ light, plug, motion, contact, thermostat, remote, climate, pwm. source `z2m:<friendly>` or `mqtt:<topic>` |
-| `cells.tsv` | id, formula, initial, type, room, note | with formula = computed (typed in dependency order, cycles are errors); without formula = held value with `initial` (type inferred, or `type` ∈ number, boolean, string, duration, timeofday, timestamp); `room` (optional, from rooms.tsv) groups the cell under that room in the UI |
+| `settings.tsv` | key, value, note | engine configuration (System); every key is a cell; `title` is the name in the UI header and browser tab |
+| `rooms.tsv` | id, name, note | room ids and Swedish names, in the order the Live view shows them; `name` becomes `<device>.room_name` and the `location` in climate history |
+| `devices.tsv` | id, room, kind, group, source, name, watts, note | id = stable device name, room ∈ rooms.tsv; group (optional) = appliance column in Live, see below; watts (optional) = rated power, used for the cost estimate; kind ∈ light, plug, motion, contact, thermostat, remote, climate, pwm. source `z2m:<friendly>` or `mqtt:<topic>` |
+| `cells.tsv` | id, formula, initial, type, room, group, name, note | with formula = computed (typed in dependency order, cycles are errors); without formula = held value with `initial` (type inferred, or `type` ∈ number, boolean, string, duration, timeofday, timestamp); `room` (optional, from rooms.tsv) and `group` (optional) place the cell in a room and appliance column in the UI; `name` is the Swedish label shown instead of the id |
 | `scenes.tsv` | device, `<scene>`... | grid; cell = target tokens; empty = untouched |
 | `rules.tsv` | id, when, if, then, enabled, note | see below |
 | `sequences.tsv` | sequence, step, after, action, cancel_if, note | `after` is relative to the previous step; step `*` = whole-sequence cancel condition |
+| `alerts.tsv` | id, level, if, text, room, note | banners at the top of Live while `if` is TRUE; level ∈ info, warning, danger (most severe first); `text` may contain `{formula}`; compiled to derived cells `alert_<id>` and `alert_<id>_text` (usable in rules and scenarios); thresholds go in cells.tsv |
 | `history.tsv` | record, collection, field, formula, scale, min_interval, max_interval, min_delta, note | rows with the same `record` form one PocketBase record; `max_interval` = heartbeat write even when unchanged |
+
+Room target temperature: a held number cell `<room>_target` (room = that room, group = heating) plus a rule `on <room>_target` → `set thermostat in <room> setpoint={<room>_target}`. The Live view shows it as a stepper in the room's Värme column. Moving a thermostat to another room needs no rule change.
+
+Appliance groups (`group` in devices.tsv and cells.tsv): `light` (Belysning), `heating` (Värme), `air` (Luft och ventilation), `sensors` (Sensorer), `other` (Övrigt). An empty group takes the default for the device kind: light→light, thermostat→heating, pwm/climate→air, motion/contact→sensors, remote/plug→other; cells default to other. The Live view shows each room as one panel split into these columns; held values appear as controls, computed cells and device details sit behind Detaljer.
 
 ### Rules
 
@@ -91,6 +96,7 @@ Remote (button) cells are transient: every press counts as a change even if the 
 set <device> <targets...>       set lamp1 60% 2700K transition=2s
                                 set lamp1 brightness+=20%     (relative, device does the maths)
                                 set fan 40                     (pwm level / thermostat setpoint)
+set <kind> in <room> <targets> set thermostat in living_room setpoint={living_room_target}   (every device of that kind in the room, resolved when it runs)
 set <var> <value>               set fan_auto FALSE
 scene <scene> [<room>]          scene night  /  scene off living_room
 event <name>                    event goodnight        (fires `on event` rules; the UI and remotes can send events)
@@ -115,13 +121,14 @@ Operators: `= <> < <= > >= + - * / &` (`&` concatenates). No `&&`/`||`: use `AND
 | math | `AVG MIN MAX SUM ABS ROUND CLAMP(x,lo,hi) BETWEEN(x,lo,hi) COUNT` |
 | text | `TEXT LOWER UPPER` |
 | time | `NOW() TIME() WEEKDAY() ISWEEKDAY() ISWEEKEND() HOUR() MINUTE() TODAY(07:30) SUNRISE() SUNSET() MINUTES(d) HOURS(d) SECONDS(d)` |
-| history | `SINCE(cell)` `SINCE(cell, value)` `PREV(cell)` `CHANGED(cell)` `HOLD(cell, 10m)` |
+| history | `SINCE(cell)` `SINCE(cell, value)` `PREV(cell)` `CHANGED(cell)` `HOLD(cell, 10m)` `SHARE(cell, 15m)` |
 
 Idioms:
 ```
 BETWEEN(TIME(), 19:30, 06:00)                       time window wrapping midnight
 AND(NOT(hall.motion), SINCE(hall.motion, TRUE) > 5m) quiet for 5 minutes
-HOLD(bath.humid, 2m)                                 true continuously for 2 minutes
+HOLD(bath.humid, 2m)                                 true continuously for 2 minutes (also after NULL -> TRUE); the argument must be a cell
+ROUND(SHARE(heater1_heating, 15m) * 100)            % of the last 15 min a boolean cell was TRUE (the duty of an on/off heater; at most 24 h back, only known time counts)
 sun.elevation < dark_elevation                       dark, threshold from settings
 COALESCE(fan.level, -1)                     treat unknown as -1
 ```
@@ -143,6 +150,7 @@ Scenario rows: `step | at | do | expect`. `at` = absolute `2026-09-23T21:00` (fi
 
 - One cause per pass. Actions that change engine state (`event`, `set <var>`, `start`, `cancel`) become new passes, so traces stay readable. A chain deeper than 20 passes is cut with an error (rules feeding each other).
 - Device cells change only when the device reports back over MQTT, never optimistically.
+- `<device>.last_seen` is set by live reports only; a retained message replayed at startup is old state and does not count. When zigbee2mqtt reports on `bridge/logging` that a command to a device failed, `<device>.available` becomes FALSE (Live shows "nås inte") until the device reports live again.
 - Rate guard: more than 10 commands to one device in 10 s are dropped with an error in the trace.
 - Startup and hot reload evaluate everything and baseline rule edges **without firing**.
 - `DRY_RUN=true` logs actions instead of publishing (used during the Node-RED cutover). `just dryrun` prints what the engine would have sent and whether the device ended up in that state anyway (because Node-RED did it).
@@ -152,6 +160,7 @@ Scenario rows: `step | at | do | expect`. `at` = absolute `2026-09-23T21:00` (fi
 
 - English words for ids and columns (device ids follow zigbee2mqtt names), Swedish for `name` and `note`. Comments in tables are welcome (`#` lines).
 - The web UI is in Swedish: every label, button, status text and chart title. Label maps live in `web/src/lib/format.ts`. Cell ids, table contents, formulas and engine-generated trace text stay as they are.
+- Boolean words in the UI: PÅ/AV only for devices you can switch, JA/NEJ for held values (vars) you can toggle, SANT/FALSKT for everything you cannot change (computed cells, sensor flags). Device kind icons are simple stroke drawings in `web/src/components/live/Icon.svelte`. Every reported value looks the same whatever its source (sensor, thermostat, computed cell): the global `.value` style, numbers through `formatQuantity` in `web/src/lib/format.ts` (°C one decimal, % lx K whole, space before the unit); in Live rows use `components/live/Reading.svelte`. Everything measured in a room (temperature, humidity, light, motion, open) is shown together in the room's readings band (`RoomReadings.svelte`, `roomReadings` in `lib/live.ts`): the mean of the reachable sources with the sources listed under it, whatever device kind reports it. Pure sensors and remotes get no row of their own; their details are under the room's Detaljer.
 - The Tabeller view documents itself in Swedish from `web/src/lib/docs.sv.ts` (table purposes, columns, formula and action help). That file mirrors this document: when a table, column, function or action changes here, change it there too.
 - The web UI follows the Maskinrepubliken design system. Tokens and rules are copied in `web/design/` (see `SOURCE.md` there); `web/src/tokens.css` is generated from `web/design/tokens.json` and every colour, radius, spacing and font in the UI comes from those variables. No shadows, no gradients, no opacity for tone, no transitions; status is never carried by colour alone; buttons are pills; hover swaps the surface to `paper-hover`; focus is a solid 2 px ring.
 - One rule per row; split rather than nest `IF`s. Timed things are `at` rules, not a separate schedule. Prefer derived cell + edge rule over `on <cell>` rules.
@@ -162,7 +171,11 @@ Scenario rows: `step | at | do | expect`. `at` = absolute `2026-09-23T21:00` (fi
 
 ## History, weather, GPIO
 
-- `history.tsv` drives the PocketBase writer (`engine/src/core/history.ts` + `adapters/pocketbase.ts`). Rows sharing a `record` id are written as one PocketBase record when any field changes, at most once per `min_interval`, only if a numeric field moved by `min_delta`. Constant fields are quoted strings or numbers (`"climate1"`, `10`). Without `PB_URL`/`PB_EMAIL`/`PB_PASSWORD` in the env the engine keeps recent rows in memory only (the UI history view still works for the current run). In `DRY_RUN` history rows are logged, not written.
+- `history.tsv` drives the PocketBase writer (`engine/src/core/history.ts` + `adapters/pocketbase.ts`). Rows sharing a `record` id are written as one PocketBase record when any field changes, at most once per `min_interval`, only if a numeric field moved by `min_delta`. A record that reads an unreachable device (`.available` FALSE, or no live report for 6 h) is not written, so a dead device's last value never shows up as a flat line. Constant fields are quoted strings or numbers (`"climate1"`, `10`). Without `PB_URL`/`PB_EMAIL`/`PB_PASSWORD` in the env the engine keeps recent rows in memory only (the UI history view still works for the current run). In `DRY_RUN` history rows are logged, not written.
+- The Grafer view (`views/History.svelte`, `#/history`) is arranged like Live (`web/src/lib/history.ts`): the room temperatures side by side (mean of each room's sources), one panel per room with every source on its own line, then appliances (pwm levels as curves, everything else as a row of squares: one per hour for 24 h, one per day for a week or a month, filled when on for at least half of it). On/off rows are written only when an appliance switches, so they are fetched 31 days further back to know the state at the start. A history `sensor`/`name` constant is labelled with the Swedish name of the device or cell its history.tsv record reads.
+- The footer on every page links to zigbee2mqtt and PocketBase from the settings `z2m_frontend` and `pocketbase_admin` (a full URL, or `:port/path` on the host the UI was loaded from).
+- Kostnader (`web/src/views/Costs.svelte`, `#/costs`) shows the estimated cost for a day, week, month or custom range of days (at most 62), per appliance and per hour or day; the estimate itself is `web/src/lib/cost.ts`. Kostnader and Grafer show only a loading state while a period loads, never the previous period's numbers.
+- Electricity: `price_area` in settings.tsv (e.g. `SE3`) makes the engine fetch spot prices from elprisetjustnu.se (`adapters/prices.ts`, days cached in `STATE_DIR/prices/`), feed the system cell `electricity.price` (SEK/kWh without VAT, current 15-minute slot) and serve `/api/prices?since=&until=`. Kostnader estimates cost for every device with `watts`: thermostats by their heating demand, on/off appliances by their on-time, priced at spot × `electricity_vat` + `electricity_surcharge` (cells.tsv).
 - `weather.*` cells come from OpenWeatherMap (`adapters/weather.ts`) when `OWM_API_KEY` is set; polling interval is `weather_interval` in settings.tsv.
 - `gpio/gpio.py` (Python, systemd unit `pioneer-gpio`) reads the DHT22s and drives the PWM fan; topics under `home/gpio/`, configured in `gpio/gpio.yaml`. Run it with `GPIO_FAKE=1` off the Pi.
 - The engine's HTTP API is documented at the top of `engine/src/adapters/http.ts`; `/api/history/:collection?since=&until=` proxies PocketBase so it never needs open rules.

@@ -1,5 +1,6 @@
 # Engine configuration (System). Thresholds and other house constants live in cells.tsv. Every key is also readable as a cell.
 key	value	note
+title	pioneer-home	namnet i sidhuvudet och webbläsarfliken
 timezone	Europe/Stockholm	
 latitude	59.33	example location
 longitude	18.07	example location
@@ -8,3 +9,5 @@ z2m_base	zigbee2mqtt	zigbee2mqtt base topic
 gpio_base	home/gpio	topics published by the Python GPIO service
 history_flush	10s	how often buffered history rows are written to PocketBase
 weather_interval	20m	OpenWeatherMap polling interval
+z2m_frontend	:8080	zigbee2mqtt GUI, linked from the UI footer (full URL, or :port on the host the UI was loaded from)
+pocketbase_admin	:8090/_/	PocketBase admin, linked from the UI footer

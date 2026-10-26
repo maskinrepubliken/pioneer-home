@@ -1,6 +1,7 @@
 /**
  * The cell store: current values, previous values, when each cell last changed, and when each
  * tracked (cell, value) pair was last seen. This is what SINCE(), PREV() and CHANGED() read.
+ * Boolean cells also keep their changes of the last SHARE_MAX_MS, which SHARE() integrates.
  */
 import { Duration, decodeValue, encodeValue, valuesEqual, type Value } from '../formula/values.js';
 import type { Config } from '../config/model.js';
@@ -26,6 +27,9 @@ export interface StoreSnapshot {
   lastSeen: Record<string, Record<string, number>>;
 }
 
+/** The longest window SHARE() can look back over; older changes of boolean cells are dropped. */
+export const SHARE_MAX_MS = 24 * 3_600_000;
+
 export class CellStore {
   private cells = new Map<string, CellState>();
   private aliases: Map<string, string>;
@@ -33,6 +37,8 @@ export class CellStore {
   /** cell -> (JSON-encoded value -> epoch ms when the cell last had that value) */
   private lastSeen = new Map<string, Map<string, number>>();
   private tracked = new Map<string, Set<string>>();
+  /** boolean cell -> its values since SHARE_MAX_MS ago, oldest first (the first entry may be older: it is the value at the window start) */
+  private history = new Map<string, { at: number; value: Value }[]>();
   /** cells changed during the current pass */
   private changedThisPass = new Set<string>();
 
@@ -135,6 +141,7 @@ export class CellStore {
     st.value = value;
     st.changedAt = now;
     this.touchSeen(id, value, now);
+    if (typeof value === 'boolean' || typeof from === 'boolean') this.record(id, value, now);
     this.changedThisPass.add(id);
     return { cell: id, from, to: value };
   }
@@ -192,6 +199,35 @@ export class CellStore {
     return [...this.cells.entries()];
   }
 
+  private record(id: string, value: Value, at: number): void {
+    let log = this.history.get(id);
+    if (!log) this.history.set(id, (log = []));
+    log.push({ at, value });
+    while (log.length > 1 && log[1]!.at <= at - SHARE_MAX_MS) log.shift();
+  }
+
+  /**
+   * Share (0..1) of the last `windowMs` during which a boolean cell was TRUE. Only time with a known value counts,
+   * so right after a restart the share is over the part of the window seen so far; NULL when none of it is known.
+   */
+  share(ref: string, now: number, windowMs: number): number | null {
+    const id = this.resolve(ref);
+    const st = this.cells.get(id);
+    const log = this.history.get(id) ?? (st && typeof st.value === 'boolean' && st.changedAt !== null ? [{ at: st.changedAt, value: st.value }] : []);
+    const start = now - Math.min(windowMs, SHARE_MAX_MS);
+    let on = 0;
+    let known = 0;
+    for (let i = 0; i < log.length; i++) {
+      const a = Math.max(log[i]!.at, start);
+      const b = Math.min(log[i + 1]?.at ?? now, now);
+      const v = log[i]!.value;
+      if (b <= a || typeof v !== 'boolean') continue;
+      known += b - a;
+      if (v) on += b - a;
+    }
+    return known > 0 ? on / known : null;
+  }
+
   snapshot(now: number): StoreSnapshot {
     const cells: StoreSnapshot['cells'] = {};
     for (const [id, st] of this.cells) cells[id] = { value: encodeValue(st.value), prev: encodeValue(st.prev), changedAt: st.changedAt, seenAt: st.seenAt };
@@ -209,6 +245,8 @@ export class CellStore {
       st.prev = decodeValue(raw.prev);
       st.changedAt = raw.changedAt;
       st.seenAt = raw.seenAt;
+      // the restored value has been held since it last changed (as far as anyone knows)
+      if (typeof st.value === 'boolean' && st.changedAt !== null) this.history.set(id, [{ at: st.changedAt, value: st.value }]);
     }
     for (const [id, m] of Object.entries(snap.lastSeen)) {
       if (!this.cells.has(id)) continue;

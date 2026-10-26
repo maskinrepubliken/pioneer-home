@@ -3,7 +3,8 @@
  * everything published and lets the simulator inject messages and echo device state.
  */
 
-export type MessageHandler = (topic: string, payload: string) => void;
+/** `retained` is true for a retained message replayed by the broker on subscribe: old state, not a sign of life. */
+export type MessageHandler = (topic: string, payload: string, retained?: boolean) => void;
 
 export interface Transport {
   publish(topic: string, payload: string, opts?: { retain?: boolean }): void;
@@ -47,9 +48,9 @@ export class FakeTransport implements Transport {
   }
 
   /** Delivers a message as if it came from the broker. */
-  inject(topic: string, payload: string): void {
+  inject(topic: string, payload: string, retained = false): void {
     for (const s of this.subs) {
-      if (topicMatches(s.filter, topic)) s.handler(topic, payload);
+      if (topicMatches(s.filter, topic)) s.handler(topic, payload, retained);
     }
   }
 

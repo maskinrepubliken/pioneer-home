@@ -1,5 +1,5 @@
 /** Value formatting, relative time and Swedish UI labels. Pure functions, no Svelte. */
-import type { Cell, EncodedValue } from './api';
+import type { Cell, CellGroup, EncodedValue } from './api';
 
 export const LOCALE = 'sv-SE';
 
@@ -107,14 +107,34 @@ export function unitFor(id: string, prop?: string | null): string {
   }
 }
 
+/**
+ * A number with its unit, the same everywhere in the UI: °C with one decimal, %, lx, K and hPa as whole numbers,
+ * anything else via formatNumber; always a space before the unit (`21.0 °C`, `45 %`).
+ */
+export function formatQuantity(n: number, unit = ''): string {
+  const u = unit.trim();
+  const text = u === '°C' ? n.toFixed(1) : ['%', 'lx', 'K', 'hPa'].includes(u) ? String(Math.round(n)) : formatNumber(n);
+  return u ? `${text} ${u}` : text;
+}
+
 export function formatNumber(n: number): string {
   if (Number.isInteger(n)) return String(n);
   return String(Math.round(n * 100) / 100);
 }
 
-/** Boolean shown as a pill: PÅ / AV. */
+/** Boolean shown as a pill: PÅ / AV for things you can switch. */
 export function onOff(v: boolean): string {
   return v ? 'PÅ' : 'AV';
+}
+
+/** Boolean held value you can toggle (cells.tsv variable): JA / NEJ. PÅ/AV is only for devices. */
+export function yesNo(v: boolean): string {
+  return v ? 'JA' : 'NEJ';
+}
+
+/** Boolean that is a fact, not a switch (computed cells, sensor flags): SANT / FALSKT. */
+export function trueFalse(v: boolean): string {
+  return v ? 'SANT' : 'FALSKT';
 }
 
 /** Compact display of any encoded value. Strings are shown bare (not quoted). */
@@ -122,8 +142,7 @@ export function formatValue(v: EncodedValue, id = '', prop?: string | null, now:
   if (v === null || v === undefined) return 'NULL';
   if (typeof v === 'boolean') return onOff(v);
   if (typeof v === 'number') {
-    const unit = unitFor(id, prop);
-    return unit ? `${formatNumber(v)}${unit === '°C' || unit === 'K' || unit === 'lx' || unit === 'W' || unit === 'm/s' ? ' ' : ''}${unit}` : formatNumber(v);
+    return formatQuantity(v, unitFor(id, prop));
   }
   if (typeof v === 'string') return v === '' ? '""' : v;
   if (isDuration(v)) return formatDuration(v.$duration);
@@ -186,40 +205,23 @@ export function cellLabel(c: Cell): string {
   return c.id;
 }
 
-/** Swedish names for device kinds. */
-export const KIND_NAME: Record<string, string> = {
-  light: 'Lampa',
-  plug: 'Uttag',
-  motion: 'Rörelsesensor',
-  thermostat: 'Termostat',
-  remote: 'Fjärrkontroll',
-  climate: 'Klimat',
-  pwm: 'Fläkt/PWM',
-  contact: 'Dörr/fönster',
-  system: 'System',
-  computed: 'Beräknat',
-  device: 'Enhet',
+/** Appliance groups in Live column order, with their Swedish column titles. */
+export const GROUP_ORDER: CellGroup[] = ['light', 'heating', 'air', 'sensors', 'other'];
+export const GROUP_LABEL: Record<CellGroup, string> = {
+  light: 'Belysning',
+  heating: 'Värme',
+  air: 'Luft och ventilation',
+  sensors: 'Sensorer',
+  other: 'Övrigt',
 };
 
-export function kindName(kind: string): string {
-  return KIND_NAME[kind] ?? kind;
-}
-
-const KIND_ICON: Record<string, string> = {
-  light: '💡',
-  plug: '🔌',
-  motion: '🚶',
-  contact: '🚪',
-  thermostat: '🌡️',
-  remote: '🎛️',
-  climate: '🌦️',
-  pwm: '🌀',
-  system: '⚙️',
-  computed: '🧮',
-};
-
-export function kindIcon(kind: string): string {
-  return KIND_ICON[kind] ?? '▫️';
+/** Same defaults as the engine: light->light, thermostat->heating, pwm/climate->air, motion/contact->sensors, else other. */
+export function defaultGroup(kind: string): CellGroup {
+  if (kind === 'light') return 'light';
+  if (kind === 'thermostat') return 'heating';
+  if (kind === 'pwm' || kind === 'climate') return 'air';
+  if (kind === 'motion' || kind === 'contact') return 'sensors';
+  return 'other';
 }
 
 /**

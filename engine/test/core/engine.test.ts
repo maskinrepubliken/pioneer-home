@@ -242,6 +242,43 @@ describe('engine passes', () => {
     expect(sim.get('fan')).toBe(40);
   });
 
+  it('does not take a retained message as a sign of life, and marks a device unreachable when z2m cannot deliver', () => {
+    const config = makeConfig({});
+    const sim = new Simulator(config, { at: at('2026-09-23T21:00') });
+    sim.transport.inject('zigbee2mqtt/Hall', '{"state":"ON"}', true);
+    expect(sim.get('hall.light')).toBe(true);
+    expect(sim.get('hall.light.last_seen')).toBeNull();
+    sim.mqtt(
+      'zigbee2mqtt/bridge/logging',
+      `{"level":"error","message":"z2m: Publish 'set' 'state' to 'Hall' failed: 'Error: ZCL command failed (NwkRouteDiscoveryFailed)'"}`,
+    );
+    expect(sim.get('hall.light.available')).toBe(false);
+    sim.mqtt('zigbee2mqtt/bridge/logging', '{"level":"info","message":"z2m:mqtt: MQTT publish: topic \'zigbee2mqtt/Hall\'"}');
+    expect(sim.get('hall.light.available')).toBe(false);
+    sim.mqtt('zigbee2mqtt/Hall', '{"state":"OFF"}');
+    expect(sim.get('hall.light.available')).toBe(true);
+    expect(sim.get('hall.light.last_seen')).not.toBeNull();
+  });
+
+  it('SHARE integrates how long a boolean cell was TRUE over the window', () => {
+    const config = makeConfig({
+      'vars.tsv': 'id\ttype\tinitial\nheating\tboolean\tFALSE\n',
+      'derived.tsv': 'id\tformula\nduty\tROUND(SHARE(heating, 15m) * 100)\n',
+    });
+    const sim = new Simulator(config, { at: at('2026-09-23T12:00') });
+    sim.set('heating', 'TRUE');
+    sim.advance(5 * 60_000);
+    sim.set('heating', 'FALSE');
+    sim.advance(5 * 60_000);
+    sim.set('heating', 'TRUE');
+    sim.advance(5 * 60_000);
+    // the last 15 minutes: TRUE 5, FALSE 5, TRUE 5
+    expect(sim.get('duty')).toBe(67);
+    sim.set('heating', 'FALSE');
+    sim.advance(15 * 60_000);
+    expect(sim.get('duty')).toBe(0);
+  });
+
   it('interpolates {formulas} in actions and supports relative brightness', () => {
     const config = makeConfig({
       'vars.tsv': 'id\ttype\tinitial\nwanted\tnumber\t35\n',

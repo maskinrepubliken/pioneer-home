@@ -1,0 +1,6 @@
+# Banners at the top of Live. One row per banner: it shows while `if` is TRUE, most severe first.
+# level: info, warning (Varning) or danger (Fara). text may contain {formula}, e.g. {ROUND(climate1.temperature, 1)}.
+# room (optional, from rooms.tsv) names the room the banner is about. Put thresholds in cells.tsv.
+id	level	if	text	room	note
+bedroom_warm_manual	warning	AND(NOT(fan_auto), climate1.temperature > fan_max_temp)	Fläkten styrs inte automatiskt och det är {ROUND(climate1.temperature, 1)} °C i sovrummet.	bedroom	varning när ingen styr fläkten och det blir varmt
+workshop_freezing	danger	climate2.temperature < workshop_min_temp	Det är bara {ROUND(climate2.temperature, 1)} °C i verkstaden.	workshop	fara: frostrisk

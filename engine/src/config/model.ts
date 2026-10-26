@@ -17,14 +17,33 @@ export interface SettingDef extends Located {
   raw: string;
 }
 
+/** Appliance groups the Live view uses to split a room into columns. */
+export const APPLIANCE_GROUPS = ['light', 'heating', 'air', 'sensors', 'other'] as const;
+export type ApplianceGroup = (typeof APPLIANCE_GROUPS)[number];
+
+/** Group a device lands in when devices.tsv leaves `group` empty. */
+export const DEFAULT_GROUP_BY_KIND: Record<string, ApplianceGroup> = {
+  light: 'light',
+  thermostat: 'heating',
+  pwm: 'air',
+  climate: 'air',
+  motion: 'sensors',
+  contact: 'sensors',
+  remote: 'other',
+  plug: 'other',
+};
+
 export interface DeviceDef extends Located {
   id: string;
   room: string;
+  group: ApplianceGroup;
   kind: KindSpec;
   /** 'z2m' -> zigbee2mqtt friendly name; 'mqtt' -> generic JSON topic */
   source: { type: 'z2m'; friendly: string } | { type: 'mqtt'; topic: string };
   name: string;
   note: string;
+  /** devices.tsv `watts`: rated power, used to estimate energy and cost from heating demand. */
+  watts: number | null;
 }
 
 export interface RoomDef extends Located {
@@ -39,6 +58,7 @@ export interface VarDef extends Located {
   initial: Value;
   /** room the cell belongs to (cells.tsv `room`), for grouping in the UI */
   room: string | null;
+  group: ApplianceGroup;
 }
 
 export interface DerivedDef extends Located {
@@ -48,6 +68,22 @@ export interface DerivedDef extends Located {
   type: ValueType;
   timeDependent: boolean;
   refs: string[];
+  room: string | null;
+  group: ApplianceGroup;
+}
+
+export const ALERT_LEVELS = ['info', 'warning', 'danger'] as const;
+export type AlertLevel = (typeof ALERT_LEVELS)[number];
+
+/**
+ * alerts.tsv row: a banner at the top of Live while `if` is TRUE. Compiled into two derived cells,
+ * `alert_<id>` (the condition) and `alert_<id>_text` (the text with its {formulas} filled in).
+ */
+export interface AlertDef extends Located {
+  id: string;
+  level: AlertLevel;
+  cell: string;
+  textCell: string;
   room: string | null;
 }
 
@@ -120,6 +156,8 @@ export type ActionToken = { kind: 'text'; text: string } | { kind: 'formula'; as
 
 export type ActionDef =
   | { kind: 'set-device'; device: string; tokens: ActionToken[][]; source: string }
+  /** `set <kind> in <room> <targets>`: every device of that kind in that room, resolved when the action runs */
+  | { kind: 'set-room'; deviceKind: string; room: string; tokens: ActionToken[][]; source: string }
   | { kind: 'set-var'; var: string; value: ActionToken[]; source: string }
   | { kind: 'scene'; scene: string; room: string | null; source: string }
   | { kind: 'event'; name: string; source: string }
@@ -139,6 +177,12 @@ export interface CellDef {
   prop?: string;
   /** room for cells that belong to a room without being a device prop */
   room?: string;
+  /** appliance group (device's group for device props, cells.tsv `group` otherwise) */
+  group?: ApplianceGroup;
+  /** Swedish display name from cells.tsv `name` */
+  name?: string;
+  /** Set on the two cells compiled from an alerts.tsv row. */
+  alert?: { id: string; level: AlertLevel; role: 'if' | 'text' };
   settable: boolean;
   transient: boolean;
 }
@@ -163,6 +207,7 @@ export interface Config {
   timezone: string;
   latitude: number;
   longitude: number;
+  alerts: AlertDef[];
 }
 
 /** System cells every configuration has, fed by the engine itself. */
@@ -177,5 +222,6 @@ export const SYSTEM_CELLS: { id: string; type: ValueType }[] = [
   { id: 'weather.precipitation', type: 'number' },
   { id: 'weather.detail', type: 'string' },
   { id: 'weather.icon', type: 'string' },
+  { id: 'electricity.price', type: 'number' },
   { id: 'event', type: 'string' },
 ];
