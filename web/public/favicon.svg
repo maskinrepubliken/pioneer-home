@@ -1,1 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#1c1613"/><path d="M8 16l8-7 8 7v9H8z" fill="none" stroke="#f5cf5a" stroke-width="2.4" stroke-linejoin="round"/><path d="M13 25v-6h6v6" fill="none" stroke="#f5cf5a" stroke-width="2.4" stroke-linejoin="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- pioneer-home: a house drawn through the punch-card grid, the empty cell inside it (Maskinrepubliken perforering). -->
+  <rect width="512" height="512" rx="114" fill="#1c1613"/>
+  <path d="M136 376 L136 256 L256 136 L376 256 L376 376 Z" fill="none" stroke="#f5cf5a" stroke-width="24" stroke-linejoin="round"/>
+  <g fill="#f5cf5a">
+    <circle cx="256" cy="136" r="34"/>
+    <circle cx="136" cy="256" r="34"/><circle cx="376" cy="256" r="34"/>
+    <circle cx="136" cy="376" r="34"/><circle cx="256" cy="376" r="34"/><circle cx="376" cy="376" r="34"/>
+  </g>
+  <g fill="none" stroke="#f4efe4" stroke-width="6">
+    <circle cx="136" cy="136" r="31"/><circle cx="376" cy="136" r="31"/><circle cx="256" cy="256" r="31"/>
+  </g>
+</svg>
