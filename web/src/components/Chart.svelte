@@ -23,10 +23,10 @@
   }: { title: string; unit?: string; series: Series[]; height?: number; min?: number; max?: number; since?: number; until?: number; note?: string | undefined } = $props();
 
   // The five colours of the system, read from the tokens at render time so themes just work.
-  // Fixed order, never cycled. On a dark paper (ink theme) the two surfaces sink into the card,
-  // so the light colours lead there and forest/rust take the last seats.
-  // Neighbours in the order differ the most (forest and ink are both dark, so they are kept apart).
-  const PALETTE_LIGHT = ['--surface-forest', '--ochre', '--surface-rust', '--ink', '--ink-muted'];
+  // Fixed order, never cycled. On paper the dark colours lead and ochre comes last: on an e-ink panel ochre fades
+  // and forest and rust turn almost the same grey (web/design/eink.md), so the first lines are the ones that hold
+  // up there. On a dark paper (ink theme) the two surfaces sink into the card, so the light colours lead instead.
+  const PALETTE_LIGHT = ['--ink', '--surface-forest', '--surface-rust', '--ink-muted', '--ochre'];
   const PALETTE_DARK = ['--ink', '--ochre', '--surface-rust', '--ink-muted', '--surface-forest'];
 
   let host: HTMLDivElement;

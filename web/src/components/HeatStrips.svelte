@@ -7,6 +7,7 @@
    * Heat sources keep their colour by name (alphabetical), never by rank.
    */
   import { kr } from '../lib/cost';
+  import SeriesFills, { seriesFill } from './SeriesFills.svelte';
 
   interface Source {
     label: string;
@@ -18,6 +19,7 @@
     outdoor,
     price,
     sources,
+    order = [],
   }: {
     /** start of each hour, epoch seconds */
     hours: number[];
@@ -25,11 +27,15 @@
     /** kr/kWh paid (spot x VAT + surcharge) */
     price: (number | null)[];
     sources: Source[];
+    /** every appliance's label in fill order (lib/cost.ts applianceOrder); labels not in it come after, by name */
+    order?: string[];
   } = $props();
 
-  const PALETTE = ['--surface-forest', '--ochre', '--surface-rust', '--ink', '--ink-muted'];
   const ordered = $derived([...sources].sort((a, b) => a.label.localeCompare(b.label, 'sv')));
-  const colour = (i: number) => `var(${PALETTE[i % PALETTE.length]})`;
+  const slots = $derived([...order, ...ordered.map((s) => s.label).filter((l) => !order.includes(l))]);
+  const uid = `hs${Math.random().toString(36).slice(2, 8)}`;
+  /** Dark colours and textures (SeriesFills), so the sources stay apart on an e-ink panel too; by appliance, not rank. */
+  const colour = (i: number) => seriesFill(uid, slots.indexOf(ordered[i]!.label));
 
   let width = $state(0);
   const GUTTER = 46;
@@ -39,7 +45,8 @@
   const x = (i: number) => GUTTER + i * bw;
 
   let active = $state<number | null>(null);
-  const shown = $derived(active ?? (n ? n - 1 : null));
+  /** Without a pick: the last whole hour (the current one has only just begun). */
+  const shown = $derived(active ?? (n > 1 ? n - 2 : n ? 0 : null));
 
   const sum = (arr: number[][], i: number) => arr.reduce((t, a) => t + (a[i] ?? 0), 0);
   const kwTotal = $derived(hours.map((_, i) => sum(ordered.map((s) => s.kw), i)));
@@ -130,7 +137,7 @@
 <figure class="strips" bind:clientWidth={width}>
   <figcaption class="readout" aria-live="polite">
     {#if shown !== null}
-      <span class="when">{active === null ? 'Senaste timmen' : dayHour(hours[shown]!)}</span>
+      <span class="when">{dayHour(hours[shown]!)}{active === null ? ' · senaste hela timmen' : ''}</span>
       <span class="vals">
         <span><b class="value">{outdoor[shown] === null ? '—' : `${num1(outdoor[shown]!)} °C`}</b> ute</span>
         <span><b class="value">{num2(kwTotal[shown] ?? 0)} kW</b> värme</span>
@@ -139,6 +146,7 @@
       </span>
     {/if}
   </figcaption>
+  <SeriesFills prefix={uid} />
 
   <div
     class="plots"
@@ -201,7 +209,7 @@
 
   <ul class="legend">
     {#each ordered as s, i (s.label)}
-      <li><span class="sw" style:background={colour(i)}></span>{s.label}</li>
+      <li><svg class="sw" width="14" height="14" aria-hidden="true"><rect width="14" height="14" rx="3" fill={colour(i)} /></svg>{s.label}</li>
     {/each}
   </ul>
 
@@ -339,9 +347,7 @@
     gap: 6px;
   }
   .sw {
-    width: 12px;
-    height: 12px;
-    border-radius: 3px;
+    flex-shrink: 0;
   }
   .tablebtn {
     margin-top: var(--space-3);

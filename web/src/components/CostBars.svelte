@@ -1,19 +1,30 @@
 <script lang="ts">
   /**
-   * Stacked bars: cost per bucket (hour or day), one segment per appliance, in the chart palette order. Drawn as
-   * SVG; the value of the hovered or focused bar is shown above the chart, so it reads without a legend lookup.
+   * Stacked bars: cost per bucket (hour or day), one segment per appliance. Drawn as SVG in pixels; the value of the
+   * hovered or focused bar is shown above the chart, so it reads without a legend lookup. Fills are dark and
+   * textured (SeriesFills, readable on e-ink) and follow the appliance's name, never its rank.
    */
   import { kr } from '../lib/cost';
+  import SeriesFills, { seriesFill } from './SeriesFills.svelte';
 
   let {
     labels,
     series,
     buckets,
     tickEvery = 1,
-  }: { labels: string[]; series: { label: string; values: number[] }[]; buckets: string[]; tickEvery?: number } = $props();
+    order = [],
+  }: {
+    labels: string[];
+    series: { label: string; values: number[] }[];
+    buckets: string[];
+    tickEvery?: number;
+    /** every appliance's label in fill order (lib/cost.ts applianceOrder); labels not in it come after, by name */
+    order?: string[];
+  } = $props();
 
-  const PALETTE = ['--surface-forest', '--ochre', '--surface-rust', '--ink', '--ink-muted'];
-  const colours = PALETTE.map((p) => `var(${p})`);
+  const uid = `cb${Math.random().toString(36).slice(2, 8)}`;
+  const slots = $derived([...order, ...series.map((s) => s.label).filter((l) => !order.includes(l)).sort((a, b) => a.localeCompare(b, 'sv'))]);
+  const fill = (label: string) => seriesFill(uid, slots.indexOf(label));
 
   const totals = $derived(buckets.map((_, i) => series.reduce((n, s) => n + (s.values[i] ?? 0), 0)));
   const max = $derived(Math.max(...totals, 0.01));
@@ -23,8 +34,8 @@
     return [1, 2, 5, 10].map((f) => f * p).find((v) => v >= max) ?? max;
   });
   let active = $state<number | null>(null);
-  const W = 100;
-  const H = 40;
+  let W = $state(0);
+  const H = 180;
   const bw = $derived(W / Math.max(buckets.length, 1));
 </script>
 
@@ -37,7 +48,9 @@
   </figcaption>
   <div class="plot">
     <div class="axis" aria-hidden="true"><span>{kr(top)}</span><span>{kr(top / 2)}</span><span>0</span></div>
-    <svg viewBox="0 0 {W} {H}" preserveAspectRatio="none" role="img" aria-label="Kostnad per {labels[0]}">
+    <div class="svgbox" bind:clientWidth={W}>
+    <SeriesFills prefix={uid} />
+    <svg width={W} height={H} role="img" aria-label="Kostnad per {labels[0]}">
       <line x1="0" x2={W} y1={H / 2} y2={H / 2} class="grid" />
       <line x1="0" x2={W} y1={H} y2={H} class="grid" />
       {#each buckets as b, i (i)}
@@ -56,12 +69,13 @@
             {@const below = series.slice(0, k).reduce((n, o) => n + (o.values[i] ?? 0), 0)}
             {@const v = s.values[i] ?? 0}
             {#if v > 0}
-              <rect x={x + bw * 0.15} width={bw * 0.7} y={H - ((below + v) / top) * H} height={(v / top) * H} fill={colours[k % colours.length]} />
+              <rect x={x + bw * 0.15} width={bw * 0.7} y={H - ((below + v) / top) * H} height={(v / top) * H} fill={fill(s.label)} />
             {/if}
           {/each}
         </g>
       {/each}
     </svg>
+    </div>
     <span></span>
     <div class="ticks" aria-hidden="true">
       {#each buckets as b, i (i)}
@@ -71,7 +85,7 @@
   </div>
   <ul class="legend">
     {#each series as s, k (k)}
-      <li><span class="sw" style="background: {colours[k % colours.length]}"></span>{s.label}</li>
+      <li><svg class="sw" width="14" height="14" aria-hidden="true"><rect width="14" height="14" rx="3" fill={fill(s.label)} /></svg>{s.label}</li>
     {/each}
   </ul>
 </figure>
@@ -121,15 +135,15 @@
     text-align: right;
     height: 180px;
   }
-  svg {
-    width: 100%;
-    height: 180px;
+  .svgbox {
+    min-width: 0;
+  }
+  .svgbox svg {
     display: block;
   }
   .grid {
     stroke: var(--line);
-    stroke-width: 0.15;
-    vector-effect: non-scaling-stroke;
+    stroke-width: 1;
   }
   .hit {
     fill: transparent;
@@ -171,8 +185,6 @@
     gap: var(--space-2);
   }
   .sw {
-    width: 12px;
-    height: 12px;
-    border-radius: 3px;
+    flex-shrink: 0;
   }
 </style>

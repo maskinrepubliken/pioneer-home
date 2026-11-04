@@ -7,7 +7,7 @@
    */
   import CostBars from '../components/CostBars.svelte';
   import { api, ApiError, type PriceSlot } from '../lib/api';
-  import { computeCosts, costPerBucket, isUnreachable, kr, meanSpot, type CostResult } from '../lib/cost';
+  import { applianceOrder, computeCosts, costPerBucket, isUnreachable, kr, meanSpot, type CostResult } from '../lib/cost';
   import { formatQuantity, roomName } from '../lib/format';
   import { namesFromTables, type Rec } from '../lib/history';
   import { home } from '../lib/state.svelte';
@@ -211,7 +211,7 @@
       </div>
     </div>
 
-    <CostBars labels={[period.per]} series={bars} buckets={period.buckets.map((b) => b.label)} tickEvery={period.tickEvery} />
+    <CostBars labels={[period.per]} series={bars} buckets={period.buckets.map((b) => b.label)} tickEvery={period.tickEvery} order={applianceOrder(names, (r) => roomName(r, home.rooms))} />
 
     <table class="costs">
       <thead><tr><th>Apparat</th><th>Effekt</th><th>Energi</th><th>Kostnad</th><th>Andel</th></tr></thead>

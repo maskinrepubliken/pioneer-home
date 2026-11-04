@@ -175,6 +175,23 @@ export function perBucket(cumulative: Points, buckets: [number, number][]): numb
   return buckets.map(([a, b]) => Math.max(0, at(b) - at(a)));
 }
 
+/**
+ * Every appliance with a rated power, labelled as computeCosts labels it (a shared name gets its room), in name
+ * order: the order charts give their fills by, so an appliance keeps its fill on every page and in every period.
+ */
+export function applianceOrder(names: Names, roomLabel: (room: string) => string): string[] {
+  const ids = Object.keys(names.deviceWatts);
+  const base = (id: string) => names.devices[id] ?? id;
+  const count = new Map<string, number>();
+  for (const id of ids) count.set(base(id), (count.get(base(id)) ?? 0) + 1);
+  return ids
+    .map((id) => {
+      const room = names.deviceRoom[id];
+      return (count.get(base(id)) ?? 0) > 1 ? `${base(id)} · ${room ? roomLabel(room) : id}` : base(id);
+    })
+    .sort((a, b) => a.localeCompare(b, 'sv'));
+}
+
 /** Cost of one appliance inside each bucket, read off its hourly cumulative curve. */
 export function costPerBucket(r: CostResult, buckets: [number, number][]): number[] {
   return perBucket(r.cumulative, buckets);

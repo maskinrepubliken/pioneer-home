@@ -9,7 +9,7 @@
   import Chart from '../components/Chart.svelte';
   import HeatStrips from '../components/HeatStrips.svelte';
   import { api, ApiError, type PriceSlot } from '../lib/api';
-  import { computeCosts, costPerBucket, isUnreachable, kr, kwhPerBucket, pricePerBucket, type CostResult } from '../lib/cost';
+  import { applianceOrder, computeCosts, costPerBucket, isUnreachable, kr, kwhPerBucket, pricePerBucket, type CostResult } from '../lib/cost';
   import { formatQuantity, roomName, timeOnly } from '../lib/format';
   import { AUTO, MANUAL, MANUAL_NAME, cellNotes, heatModes, heatRooms, heatState, targetActions } from '../lib/heat';
   import { meanSeries, namesFromTables, roomOfLocation, seriesBy, sourceId, sourceName, ts, num, type Rec, type Series } from '../lib/history';
@@ -289,7 +289,7 @@
       </div>
     </div>
     {#if sources.length}
-      <HeatStrips {hours} outdoor={hourlyOutdoor} price={hourlyPrice} {sources} />
+      <HeatStrips {hours} outdoor={hourlyOutdoor} price={hourlyPrice} {sources} order={applianceOrder(names, roomTitle)} />
     {/if}
     {#if temperatures.length}
       <div class="charts">
