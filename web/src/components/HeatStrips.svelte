@@ -1,7 +1,7 @@
 <script lang="ts">
   /**
    * What the heat cost, and why: aligned strips over the same hours, one measure each (never two y-axes):
-   * outdoor temperature (line), heating power per heat source (stacked bars, kW = kWh in the hour), the price
+   * outdoor temperature (line), daylight from a sensor that sees only the sky (line, when there is one), heating power per heat source (stacked bars, kW = kWh in the hour), the price
    * paid per kWh (line) and the cost per heat source (stacked bars). Hovering, tapping or the arrow keys pick an
    * hour across every strip; its values are read out above the strips, and every hour is also in the table.
    * Heat sources keep their colour by name (alphabetical), never by rank.
@@ -17,6 +17,7 @@
   let {
     hours,
     outdoor,
+    sun = [],
     price,
     sources,
     order = [],
@@ -24,6 +25,8 @@
     /** start of each hour, epoch seconds */
     hours: number[];
     outdoor: (number | null)[];
+    /** daylight, lx per hour (setting daylight_sensor); empty or all null: no Sol strip */
+    sun?: (number | null)[];
     /** kr/kWh paid (spot x VAT + surcharge) */
     price: (number | null)[];
     sources: Source[];
@@ -104,6 +107,16 @@
 
   const tempRange = $derived(range(outdoor));
   const priceRange = $derived(range(price.map((p) => (p === null ? null : p))));
+  const hasSun = $derived(sun.some((v) => v !== null));
+  const sunTop = $derived(niceTop(Math.max(0, ...sun.filter((v): v is number => v !== null))));
+  const STRIPS = $derived([
+    { id: 'ute', title: 'Ute', unit: '°C', kind: 'line', h: H.line },
+    ...(hasSun ? [{ id: 'sol', title: 'Sol', unit: 'lx', kind: 'sun', h: H.line }] : []),
+    { id: 'kw', title: 'Värme', unit: 'kW', kind: 'kw', h: H.bars },
+    { id: 'pris', title: 'Elpris', unit: 'kr/kWh', kind: 'price', h: H.line },
+    { id: 'kr', title: 'Kostnad', unit: 'kr', kind: 'sek', h: H.bars },
+  ]);
+  const lux = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `${Math.round(v).toLocaleString('sv-SE')} lx`);
   const kwTop = $derived(niceTop(Math.max(...kwTotal, 0)));
   const sekTop = $derived(niceTop(Math.max(...sekTotal, 0)));
   const kwBars = $derived(stacks('kw', kwTop, H.bars));
@@ -142,6 +155,7 @@
       <span class="when">{dayHour(hours[shown]!)}{active === null ? ' · senaste hela timmen' : ''}</span>
       <span class="vals">
         <span><b class="value">{outdoor[shown] === null ? '—' : `${num1(outdoor[shown]!)} °C`}</b> ute</span>
+        {#if hasSun}<span><b class="value">{lux(sun[shown])}</b> sol</span>{/if}
         <span><b class="value">{num2(kwTotal[shown] ?? 0)} kW</b> värme</span>
         <span><b class="value">{price[shown] === null ? '—' : `${num2(price[shown]!)} kr/kWh`}</b></span>
         <span><b class="value">{kr(sekTotal[shown] ?? 0)}</b> kostnad</span>
@@ -161,7 +175,7 @@
     onkeydown={key}
   >
     {#if width > 0}
-      {#each [{ id: 'ute', title: 'Ute', unit: '°C', kind: 'line', h: H.line }, { id: 'kw', title: 'Värme', unit: 'kW', kind: 'kw', h: H.bars }, { id: 'pris', title: 'Elpris', unit: 'kr/kWh', kind: 'price', h: H.line }, { id: 'kr', title: 'Kostnad', unit: 'kr', kind: 'sek', h: H.bars }] as strip (strip.id)}
+      {#each STRIPS as strip (strip.id)}
         <div class="strip">
           <span class="stitle">{strip.title} <span class="unit">{strip.unit}</span></span>
           <svg
@@ -182,6 +196,10 @@
                 <line class="zero" x1={GUTTER} x2={width} y1={y0} y2={y0} />
               {/if}
               <path class="line" d={linePath(outdoor, tempRange[0], tempRange[1], strip.h)} />
+            {:else if strip.kind === 'sun'}
+              <text class="ax" x={GUTTER - 6} y={PAD + 4}>{sunTop.toLocaleString('sv-SE')}</text>
+              <text class="ax" x={GUTTER - 6} y={strip.h - PAD}>0</text>
+              <path class="line" d={linePath(sun, 0, sunTop, strip.h)} />
             {:else if strip.kind === 'price'}
               <text class="ax" x={GUTTER - 6} y={PAD + 4}>{num1(priceRange[1])}</text>
               <text class="ax" x={GUTTER - 6} y={strip.h - PAD}>{num1(priceRange[0])}</text>
@@ -218,12 +236,13 @@
   {#if tableOpen}
     <div class="tablewrap">
       <table>
-        <thead><tr><th>Timme</th><th>Ute</th><th>Värme</th><th>Elpris</th><th>Kostnad</th></tr></thead>
+        <thead><tr><th>Timme</th><th>Ute</th>{#if hasSun}<th>Sol</th>{/if}<th>Värme</th><th>Elpris</th><th>Kostnad</th></tr></thead>
         <tbody>
           {#each hours as t, i (t)}
             <tr>
               <td>{dayHour(t)}</td>
               <td class="value">{outdoor[i] === null ? '—' : `${num1(outdoor[i]!)} °C`}</td>
+              {#if hasSun}<td class="value">{lux(sun[i])}</td>{/if}
               <td class="value">{num2(kwTotal[i] ?? 0)} kW</td>
               <td class="value">{price[i] === null ? '—' : num2(price[i]!)}</td>
               <td class="value">{kr(sekTotal[i] ?? 0)}</td>

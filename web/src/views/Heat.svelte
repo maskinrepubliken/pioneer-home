@@ -161,10 +161,10 @@
   const buckets = $derived(hours.map((h) => [h, h + 3600] as [number, number]));
   const sources = $derived(costs.map((c) => ({ label: c.label, kw: kwhPerBucket(c, buckets), sek: costPerBucket(c, buckets) })));
   const hourlyPrice = $derived(pricePerBucket(pricing, buckets));
-  /** Outdoor temperature per hour: the mean of the weather rows in it, else the last one before. */
-  const hourlyOutdoor = $derived.by(() => {
-    const rows = weather
-      .map((r: Rec) => [ts(r), num(r, 'temperature')] as const)
+  /** A value per hour: the mean of the rows in it, else the last one before (rows are written on change and as heartbeats). */
+  function hourly(items: Rec[], field: string): (number | null)[] {
+    const rows = items
+      .map((r: Rec) => [ts(r), num(r, field)] as const)
       .filter((p): p is readonly [number, number] => p[0] !== null && p[1] !== null)
       .sort((a, b) => a[0] - b[0]);
     let last: number | null = null;
@@ -179,7 +179,11 @@
       if (inside.length) last = inside.reduce((n, v) => n + v, 0) / inside.length;
       return last;
     });
-  });
+  }
+  const hourlyOutdoor = $derived(hourly(weather, 'temperature'));
+  /** Daylight: the illuminance of the sensor named by the setting daylight_sensor (one that sees only the sky). */
+  const daylightSensor = $derived(typeof home.cells['daylight_sensor']?.value === 'string' ? (home.cells['daylight_sensor']?.value as string) : '');
+  const hourlySun = $derived(daylightSensor ? hourly(climate.filter((r: Rec) => sourceId(names, String(r['sensor'] ?? '')) === daylightSensor), 'illuminance') : []);
   const lastDay = $derived.by(() => {
     const from = span.until - 86_400;
     return costs.reduce((n, c) => n + costPerBucket(c, [[from, span.until]])[0]!, 0);
@@ -295,7 +299,7 @@
       </div>
     </div>
     {#if sources.length}
-      <HeatStrips {hours} outdoor={hourlyOutdoor} price={hourlyPrice} {sources} order={applianceOrder(names, roomTitle)} />
+      <HeatStrips {hours} outdoor={hourlyOutdoor} sun={hourlySun} price={hourlyPrice} {sources} order={applianceOrder(names, roomTitle)} />
     {/if}
     {#if temperatures.length}
       <div class="charts">
