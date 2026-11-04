@@ -7,7 +7,7 @@
    * Heat sources keep their colour by name (alphabetical), never by rank.
    */
   import { kr } from '../lib/cost';
-  import SeriesFills, { seriesFill } from './SeriesFills.svelte';
+  import { seriesFill, seriesStroke } from '../lib/seriesFill';
 
   interface Source {
     label: string;
@@ -33,9 +33,10 @@
 
   const ordered = $derived([...sources].sort((a, b) => a.label.localeCompare(b.label, 'sv')));
   const slots = $derived([...order, ...ordered.map((s) => s.label).filter((l) => !order.includes(l))]);
-  const uid = `hs${Math.random().toString(36).slice(2, 8)}`;
-  /** Dark colours and textures (SeriesFills), so the sources stay apart on an e-ink panel too; by appliance, not rank. */
-  const colour = (i: number) => seriesFill(uid, slots.indexOf(ordered[i]!.label));
+  /** Solid colours with a wide spread in lightness (lib/seriesFill.ts), by appliance, not rank. */
+  const slot = (i: number) => slots.indexOf(ordered[i]!.label);
+  const colour = (i: number) => seriesFill(slot(i));
+  const outline = (i: number) => seriesStroke(slot(i));
 
   let width = $state(0);
   const GUTTER = 46;
@@ -86,7 +87,7 @@
   }
   /** Stacked bars: one rect per source and hour, a 1px surface gap between hours. */
   function stacks(key: 'kw' | 'sek', top: number, h: number) {
-    const out: { x: number; y: number; w: number; h: number; c: string }[] = [];
+    const out: { x: number; y: number; w: number; h: number; c: string; s: string }[] = [];
     for (let i = 0; i < n; i++) {
       let base = h;
       ordered.forEach((s, k) => {
@@ -94,7 +95,8 @@
         if (v <= 0) return;
         const bh = (v / top) * (h - PAD);
         base -= bh;
-        out.push({ x: x(i) + 0.5, y: base, w: Math.max(bw - 1.5, 0.5), h: bh, c: colour(k) });
+        // a one-pixel paper gap above each segment keeps stacked sources apart
+        out.push({ x: x(i) + 0.5, y: base + 1, w: Math.max(bw - 1.5, 0.5), h: Math.max(bh - 1, 0.5), c: colour(k), s: outline(k) });
       });
     }
     return out;
@@ -146,7 +148,6 @@
       </span>
     {/if}
   </figcaption>
-  <SeriesFills prefix={uid} />
 
   <div
     class="plots"
@@ -190,7 +191,7 @@
               <text class="ax" x={GUTTER - 6} y={PAD + 4}>{strip.kind === 'kw' ? num1(top) : num2(top)}</text>
               <text class="ax" x={GUTTER - 6} y={strip.h - 2}>0</text>
               {#each strip.kind === 'kw' ? kwBars : sekBars as b, i (i)}
-                <rect x={b.x} y={b.y} width={b.w} height={b.h} fill={b.c} shape-rendering="crispEdges" />
+                <rect x={b.x} y={b.y} width={b.w} height={b.h} fill={b.c} stroke={b.s} stroke-width="1" shape-rendering="crispEdges" />
               {/each}
             {/if}
             {#if shown !== null && active !== null}
@@ -209,7 +210,7 @@
 
   <ul class="legend">
     {#each ordered as s, i (s.label)}
-      <li><svg class="sw" width="14" height="14" aria-hidden="true"><rect width="14" height="14" rx="3" fill={colour(i)} /></svg>{s.label}</li>
+      <li><svg class="sw" width="14" height="14" aria-hidden="true"><rect x="0.5" y="0.5" width="13" height="13" rx="3" fill={colour(i)} stroke={outline(i)} /></svg>{s.label}</li>
     {/each}
   </ul>
 
