@@ -1,9 +1,10 @@
 /**
  * The Värme page's model, read from cell naming conventions (see CLAUDE.md, "Heating modes"). Pure functions, no Svelte.
  *
- *   heat_mode            held string: "auto" (follow the schedule), a mode id chosen by hand, or "manual" (chosen
- *                        on the page, a target changed in the UI or a setpoint changed on a thermostat: the targets
- *                        are left alone until a mode or auto is chosen)
+ *   heat_mode            held string: "auto" (follow the schedule), a mode id chosen by hand, "manual" (chosen
+ *                        on the page or a target changed in the UI: the targets are left alone until a mode or auto
+ *                        is chosen) or "manual_until_switch" (a setpoint changed on a thermostat: the same, until the
+ *                        schedule's next switch)
  *   heat_active          the mode in force now (the chosen one, or the schedule's)
  *   heat_sched_now       the schedule's mode now; its `note` describes the schedule
  *   heat_use_<mode>      TRUE while <mode> counts in the rooms' plans (the schedule's overlap makes two count at once);
@@ -18,6 +19,8 @@ import { parseTsv } from './tsv';
 
 export const AUTO = 'auto';
 export const MANUAL = 'manual';
+/** Manuellt from a setpoint changed on a thermostat: the schedule takes over again at its next switch. */
+export const MANUAL_UNTIL_SWITCH = 'manual_until_switch';
 export const MANUAL_NAME = 'Manuellt';
 
 export interface HeatMode {

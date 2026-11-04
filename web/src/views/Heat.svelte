@@ -11,7 +11,7 @@
   import { api, ApiError, type PriceSlot } from '../lib/api';
   import { applianceOrder, computeCosts, costPerBucket, isUnreachable, kr, kwhPerBucket, pricePerBucket, type CostResult } from '../lib/cost';
   import { formatQuantity, roomName, timeOnly } from '../lib/format';
-  import { AUTO, MANUAL, MANUAL_NAME, cellNotes, heatModes, heatRooms, heatState, targetActions } from '../lib/heat';
+  import { AUTO, MANUAL, MANUAL_NAME, MANUAL_UNTIL_SWITCH, cellNotes, heatModes, heatRooms, heatState, targetActions } from '../lib/heat';
   import { meanSeries, namesFromTables, roomOfLocation, seriesBy, sourceId, sourceName, ts, num, type Rec, type Series } from '../lib/history';
   import { buildLive } from '../lib/live';
   import { home, sendAction } from '../lib/state.svelte';
@@ -196,7 +196,9 @@
       {:else if heat.mode === null}
         Inga värmelägen i tabellerna än (heat_mode i Celler).
       {:else if heat.mode === MANUAL}
-        Ändrat för hand, här eller på en termostat. Gäller tills du väljer Schema eller ett läge.
+        Ändrat för hand. Gäller tills du väljer Schema eller ett läge.
+      {:else if heat.mode === MANUAL_UNTIL_SWITCH}
+        Ändrat på en termostat. Schemat gäller igen vid nästa byte; tryck Manuellt för att behålla ändringen.
       {:else if byHand}
         Valt för hand. Gäller tills du väljer Schema.
       {:else}
@@ -207,7 +209,7 @@
   {#if heat.mode !== null}
     <div class="choices" role="radiogroup" aria-label="Välj värmeläge">
       {#each [{ id: AUTO, name: 'Schema', inUse: false }, ...modes, { id: MANUAL, name: MANUAL_NAME, inUse: false }] as m (m.id)}
-        {@const chosen = heat.mode === m.id}
+        {@const chosen = heat.mode === m.id || (m.id === MANUAL && heat.mode === MANUAL_UNTIL_SWITCH)}
         <button
           class="choice"
           class:chosen
@@ -216,7 +218,7 @@
           disabled={choosing !== null}
           onclick={() => choose(m.id)}
         >
-          <span class="hole" class:filled={m.id === AUTO || m.id === MANUAL ? heat.mode === m.id : m.inUse} aria-hidden="true"></span>
+          <span class="hole" class:filled={m.id === AUTO || m.id === MANUAL ? chosen : m.inUse} aria-hidden="true"></span>
           <span class="cname">{m.name}</span>
           {#if chosen}<span class="tag">vald</span>{/if}
         </button>
