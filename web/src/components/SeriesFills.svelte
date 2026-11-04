@@ -1,18 +1,28 @@
 <script lang="ts" module>
   /**
-   * Fills for categorical bar series, readable on an e-ink panel: the dark colours first (on a greyscale or Kaleido
-   * glass forest, rust and alarm become almost the same grey and ochre fades, see web/design/eink.md), and every
-   * series after the first also carries a texture of paper-coloured lines or dots, so stacked series stay apart
-   * without colour. Render <SeriesFills prefix=... /> once per chart, then fill marks and legend swatches with
-   * seriesFill(prefix, i). Colours follow the series index; callers keep that index stable per entity.
+   * Fills for categorical bar series, readable on a colour e-ink panel: every series has its own colour AND its own
+   * pattern, so it stays apart when the glass mutes the colours (forest, rust and alarm become almost the same grey
+   * there and ochre fades, see web/design/eink.md). Patterns are coarse and axis-aligned and drawn without
+   * anti-aliasing (crispEdges): thin diagonal lines and small round dots turn to mush on the glass. Ochre carries
+   * dark dots so it never washes out. Render <SeriesFills prefix=... /> once per chart, then fill marks and legend
+   * swatches with seriesFill(prefix, i); callers keep i stable per entity (lib/cost.ts applianceOrder).
    */
-  export const SERIES_TOKENS = ['--ink', '--surface-forest', '--surface-rust', '--ink-muted', '--ochre'];
-  type Texture = 'solid' | 'diag' | 'dots' | 'antidiag';
-  const TEXTURES: Texture[] = ['solid', 'diag', 'dots', 'antidiag', 'solid'];
+  interface Style {
+    colour: string;
+    /** solid, or paper stripes / ink squares on the colour */
+    texture: 'solid' | 'stripes' | 'squares';
+  }
+  const STYLES: Style[] = [
+    { colour: '--ink', texture: 'solid' },
+    { colour: '--surface-forest', texture: 'stripes' },
+    { colour: '--ochre', texture: 'squares' },
+    { colour: '--surface-rust', texture: 'solid' },
+    { colour: '--ink-muted', texture: 'stripes' },
+  ];
 
   export function seriesFill(prefix: string, i: number): string {
-    const k = i % SERIES_TOKENS.length;
-    return TEXTURES[k] === 'solid' ? `var(${SERIES_TOKENS[k]})` : `url(#${prefix}-${k})`;
+    const k = ((i % STYLES.length) + STYLES.length) % STYLES.length;
+    return STYLES[k]!.texture === 'solid' ? `var(${STYLES[k]!.colour})` : `url(#${prefix}-${k})`;
   }
 </script>
 
@@ -22,16 +32,16 @@
 
 <svg class="defs" width="0" height="0" aria-hidden="true" focusable="false">
   <defs>
-    {#each SERIES_TOKENS as token, k (token)}
-      {#if TEXTURES[k] === 'diag' || TEXTURES[k] === 'antidiag'}
-        <pattern id="{prefix}-{k}" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate({TEXTURES[k] === 'diag' ? 45 : -45})">
-          <rect width="7" height="7" fill="var({token})" />
-          <line x1="3.5" y1="0" x2="3.5" y2="7" stroke="var(--paper-raised)" stroke-width="1.2" />
-        </pattern>
-      {:else if TEXTURES[k] === 'dots'}
+    {#each STYLES as st, k (k)}
+      {#if st.texture === 'stripes'}
         <pattern id="{prefix}-{k}" patternUnits="userSpaceOnUse" width="6" height="6">
-          <rect width="6" height="6" fill="var({token})" />
-          <circle cx="3" cy="3" r="0.9" fill="var(--paper-raised)" />
+          <rect width="6" height="6" fill="var({st.colour})" shape-rendering="crispEdges" />
+          <rect y="4" width="6" height="2" fill="var(--paper-raised)" shape-rendering="crispEdges" />
+        </pattern>
+      {:else if st.texture === 'squares'}
+        <pattern id="{prefix}-{k}" patternUnits="userSpaceOnUse" width="6" height="6">
+          <rect width="6" height="6" fill="var({st.colour})" shape-rendering="crispEdges" />
+          <rect x="2" y="2" width="2" height="2" fill="var(--ink)" shape-rendering="crispEdges" />
         </pattern>
       {/if}
     {/each}

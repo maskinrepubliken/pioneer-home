@@ -190,7 +190,7 @@
               <text class="ax" x={GUTTER - 6} y={PAD + 4}>{strip.kind === 'kw' ? num1(top) : num2(top)}</text>
               <text class="ax" x={GUTTER - 6} y={strip.h - 2}>0</text>
               {#each strip.kind === 'kw' ? kwBars : sekBars as b, i (i)}
-                <rect x={b.x} y={b.y} width={b.w} height={b.h} fill={b.c} />
+                <rect x={b.x} y={b.y} width={b.w} height={b.h} fill={b.c} shape-rendering="crispEdges" />
               {/each}
             {/if}
             {#if shown !== null && active !== null}

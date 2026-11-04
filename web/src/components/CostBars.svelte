@@ -69,7 +69,7 @@
             {@const below = series.slice(0, k).reduce((n, o) => n + (o.values[i] ?? 0), 0)}
             {@const v = s.values[i] ?? 0}
             {#if v > 0}
-              <rect x={x + bw * 0.15} width={bw * 0.7} y={H - ((below + v) / top) * H} height={(v / top) * H} fill={fill(s.label)} />
+              <rect x={x + bw * 0.15} width={bw * 0.7} y={H - ((below + v) / top) * H} height={(v / top) * H} fill={fill(s.label)} shape-rendering="crispEdges" />
             {/if}
           {/each}
         </g>
