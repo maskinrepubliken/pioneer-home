@@ -19,8 +19,11 @@ const config = res.config;
 
 const files = readdirSync(SCENARIOS).filter((f) => f.endsWith('.tsv')).sort();
 
+// A scenario simulates hours second by second (every time-dependent cell is re-evaluated each tick): allow more than the default 5 s.
+const TIMEOUT_MS = 30_000;
+
 describe('scenarios', () => {
-  it.each(files)('%s', (file) => {
+  it.each(files)('%s', { timeout: TIMEOUT_MS }, (file) => {
     const r = runScenario(config, join(SCENARIOS, file));
     if (r.failures.length) {
       const msg = r.failures.map((f) => `${r.file}:${f.line} step ${f.step}: ${f.message}`).join('\n');

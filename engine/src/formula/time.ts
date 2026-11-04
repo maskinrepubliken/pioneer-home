@@ -102,12 +102,18 @@ export function wallClockToEpoch(year: number, month: number, day: number, msSin
   return utcWall - offsetAt(guess, tz);
 }
 
+/** The last instant split, reused: every TIME(), WEEKDAY() ... in a pass asks about the same `now`, and Intl is slow. */
+let lastParts: { epochMs: number; tz: string; parts: LocalParts } | null = null;
+
 /** Splits an instant into its local calendar/clock parts in `tz`. */
 export function localParts(epochMs: number, tz: string): LocalParts {
+  if (lastParts && lastParts.epochMs === epochMs && lastParts.tz === tz) return { ...lastParts.parts };
   const w = wallClock(epochMs, tz);
   const msSinceMidnight = (w.hour * 3600 + w.minute * 60 + w.second) * 1000 + mod(epochMs, 1000);
   const midnightMs = wallClockToEpoch(w.year, w.month, w.day, 0, tz);
-  return { ...w, midnightMs, msSinceMidnight };
+  const parts = { ...w, midnightMs, msSinceMidnight };
+  lastParts = { epochMs, tz, parts };
+  return { ...parts };
 }
 
 /**
