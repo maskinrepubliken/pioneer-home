@@ -235,7 +235,7 @@
             <li>
               <span>{h.name}</span>
               <span class="value small">
-                {#if h.offline}nås inte{:else if h.heating === true}värmer{#if h.demand !== null && h.demand > 0} {Math.round(h.demand)} %{/if}{:else if h.heating === false}vilar{:else}—{/if}
+                {#if h.offline}nås inte{:else if h.heating === true}värmer{#if h.demand !== null && h.demand > 0}&nbsp;{Math.round(h.demand)}&nbsp;%{/if}{:else if h.heating === false}vilar{:else}—{/if}
                 {#if h.setpoint !== null && !h.offline} · mål {formatQuantity(h.setpoint, '°C')}{/if}
               </span>
             </li>
