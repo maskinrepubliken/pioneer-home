@@ -1,18 +1,18 @@
 <script lang="ts">
   /**
-   * Värme, the landing page: the heating mode (Schema or a mode chosen by hand), every heated room with its
-   * temperature, target and heat sources, and the last 48 hours: temperatures, heating demand and what the heat
-   * cost. Modes and rooms come from cell naming conventions (lib/heat.ts); history and cost reuse lib/history.ts
+   * Värme, the landing page: the heating mode (Schema, a mode chosen by hand, or Manuellt), every room on one line
+   * (the heated ones first, with their target), and the last 48 hours: outdoor temperature, heating power, price and
+   * cost hour by hour (components/HeatStrips.svelte), and the room temperatures. Modes and rooms come from cell naming conventions (lib/heat.ts); history and cost reuse lib/history.ts
    * and lib/cost.ts, limited to thermostats.
    */
   import { onMount } from 'svelte';
   import Chart from '../components/Chart.svelte';
-  import CostBars from '../components/CostBars.svelte';
+  import HeatStrips from '../components/HeatStrips.svelte';
   import { api, ApiError, type PriceSlot } from '../lib/api';
-  import { computeCosts, costPerBucket, isUnreachable, kr, type CostResult } from '../lib/cost';
+  import { computeCosts, costPerBucket, isUnreachable, kr, kwhPerBucket, pricePerBucket, type CostResult } from '../lib/cost';
   import { formatQuantity, roomName, timeOnly } from '../lib/format';
   import { AUTO, MANUAL, MANUAL_NAME, cellNotes, heatModes, heatRooms, heatState, targetActions } from '../lib/heat';
-  import { dutySeries, isPulsing, meanSeries, namesFromTables, roomOfLocation, seriesBy, sourceId, sourceName, type Rec, type Series } from '../lib/history';
+  import { meanSeries, namesFromTables, roomOfLocation, seriesBy, sourceId, sourceName, ts, num, type Rec, type Series } from '../lib/history';
   import { buildLive } from '../lib/live';
   import { home, sendAction } from '../lib/state.svelte';
 
@@ -24,7 +24,6 @@
   const heat = $derived(heatState(home.cells));
   const rooms = $derived(heatRooms(layout, home.cells, home.rooms));
   const heated = $derived(rooms.filter((r) => r.heated));
-  const others = $derived(rooms.filter((r) => !r.heated));
   const notes = $derived(cellNotes(home.tables?.files ?? {}));
   const modeName = (id: string | null) => (id === null ? '—' : id === MANUAL ? MANUAL_NAME : (modes.find((m) => m.id === id)?.name ?? id));
   /** a mode chosen by hand (not the schedule); `manual` = targets changed by hand */
@@ -133,37 +132,23 @@
       const target = seriesBy(h, 'sensor', 'target', () => `Mål ${r.title}`, { stepped: true, dash: true, colorKey: () => r.title })[0];
       if (target) targets.push(target);
     }
-    const outdoor = seriesBy(weather, 'collectionName', 'temperature', () => 'Utomhus', { dash: true });
-    // the chart draws five series: rooms and outdoors first, targets while there is room
-    return [...lines, ...outdoor, ...targets].slice(0, 5);
+    // the chart draws five series: rooms first, targets while there is room
+    return [...lines, ...targets].slice(0, 5);
   });
-
-  /** Heating demand per heat source; a pulsing on/off heater as its share of each quarter. */
-  const demand = $derived(
-    seriesBy(
-      heating.filter((x: Rec) => heatedRooms.has(roomOfHeater(x) ?? '')),
-      'sensor',
-      'pi',
-      (k) => {
-        const room = names.deviceRoom[sourceId(names, k)];
-        return room ? `${label(k)} · ${roomTitle(room)}` : label(k);
-      },
-      { stepped: true },
-    ).map((s) => (isPulsing(s.points) ? { ...s, label: `${s.label} *`, points: dutySeries(s.points, BUCKET, span.since, span.until) } : s)),
-  );
 
   const cellNumber = (id: string, fallback: number) => {
     const v = home.cells[id]?.value;
     return typeof v === 'number' ? v : fallback;
   };
   const skip = (id: string) => isUnreachable(home.cells, names, id, Date.now());
+  const pricing = $derived({ slots, vat: cellNumber('electricity_vat', 1.25), surcharge: cellNumber('electricity_surcharge', 0) });
   const costs = $derived.by((): CostResult[] => {
     if (span.until <= span.since) return [];
     return computeCosts({
       heating: heating.filter((x: Rec) => heatedRooms.has(roomOfHeater(x) ?? '')),
       power: [],
       names,
-      pricing: { slots, vat: cellNumber('electricity_vat', 1.25), surcharge: cellNumber('electricity_surcharge', 0) },
+      pricing,
       since: span.since,
       until: span.until,
       skip,
@@ -173,8 +158,28 @@
   const totalSek = $derived(costs.reduce((n, c) => n + c.sek, 0));
   const totalKwh = $derived(costs.reduce((n, c) => n + c.kwh, 0));
   const hours = $derived(Array.from({ length: HOURS }, (_, i) => span.since + i * 3600));
-  const bars = $derived(costs.map((c) => ({ label: c.label, values: costPerBucket(c, hours.map((h) => [h, h + 3600] as [number, number])) })));
-  const hourLabels = $derived(hours.map((h) => String(new Date(h * 1000).getHours()).padStart(2, '0')));
+  const buckets = $derived(hours.map((h) => [h, h + 3600] as [number, number]));
+  const sources = $derived(costs.map((c) => ({ label: c.label, kw: kwhPerBucket(c, buckets), sek: costPerBucket(c, buckets) })));
+  const hourlyPrice = $derived(pricePerBucket(pricing, buckets));
+  /** Outdoor temperature per hour: the mean of the weather rows in it, else the last one before. */
+  const hourlyOutdoor = $derived.by(() => {
+    const rows = weather
+      .map((r: Rec) => [ts(r), num(r, 'temperature')] as const)
+      .filter((p): p is readonly [number, number] => p[0] !== null && p[1] !== null)
+      .sort((a, b) => a[0] - b[0]);
+    let last: number | null = null;
+    let k = 0;
+    return buckets.map(([a, b]) => {
+      const inside: number[] = [];
+      while (k < rows.length && rows[k]![0] < b) {
+        if (rows[k]![0] >= a) inside.push(rows[k]![1]);
+        else last = rows[k]![1];
+        k++;
+      }
+      if (inside.length) last = inside.reduce((n, v) => n + v, 0) / inside.length;
+      return last;
+    });
+  });
   const lastDay = $derived.by(() => {
     const from = span.until - 86_400;
     return costs.reduce((n, c) => n + costPerBucket(c, [[from, span.until]])[0]!, 0);
@@ -257,14 +262,8 @@
     </li>
   {/snippet}
   <ul class="rows">
-    {#each heated as r (r.id)}{@render row(r)}{/each}
+    {#each rooms as r (r.id)}{@render row(r)}{/each}
   </ul>
-  {#if others.length}
-    <h2 class="others">Övriga rum</h2>
-    <ul class="rows">
-      {#each others as r (r.id)}{@render row(r)}{/each}
-    </ul>
-  {/if}
 </section>
 
 <section class="panel recent" aria-labelledby="h-48">
@@ -289,28 +288,15 @@
         <span class="sub">de senaste 24 timmarna</span>
       </div>
     </div>
-    {#if bars.length}
-      <CostBars labels={['timme']} series={bars} buckets={hourLabels} tickEvery={6} />
+    {#if sources.length}
+      <HeatStrips {hours} outdoor={hourlyOutdoor} price={hourlyPrice} {sources} />
     {/if}
-    <div class="charts">
-      {#if temperatures.length}
-        <Chart since={span.since} until={span.until} title="Temperatur" unit="°C" series={temperatures} height={narrow ? 170 : 220} />
-      {/if}
-      {#if demand.length}
-        <Chart
-          since={span.since}
-          until={span.until}
-          title="Värmebehov"
-          unit="%"
-          series={demand}
-          min={0}
-          max={100}
-          height={narrow ? 140 : 180}
-          note={demand.some((s) => s.label.endsWith(' *')) ? '* Slår av och på i korta pulser; kurvan visar hur stor del av varje kvart den värmer.' : undefined}
-        />
-      {/if}
-    </div>
-    <p class="note">Kostnaden är en uppskattning: effekt × värmebehov × spotpris med moms och påslag, som under Kostnader.</p>
+    {#if temperatures.length}
+      <div class="charts">
+        <Chart since={span.since} until={span.until} title="Temperatur i rummen" unit="°C" series={temperatures} height={narrow ? 160 : 200} />
+      </div>
+    {/if}
+    <p class="note">Värme och kostnad är uppskattningar: effekt × värmebehov, och den energin × elpriset (spotpris med moms och påslag), som under Kostnader.</p>
   {/if}
 </section>
 
@@ -484,18 +470,6 @@
     line-height: 1;
     font-weight: 400;
     text-align: right;
-  }
-  .others {
-    font-family: var(--font-display);
-    font-size: 12px;
-    line-height: 1.2;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: var(--surface-rust);
-    margin: var(--space-3) 0 0;
-    padding-top: var(--space-3);
-    border-top: 1px solid var(--line-strong);
   }
   .stepper {
     display: inline-flex;

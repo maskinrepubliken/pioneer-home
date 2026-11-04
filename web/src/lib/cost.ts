@@ -30,6 +30,8 @@ export interface CostResult {
   unknown: number;
   /** cumulative cost in SEK, one point per hour, for the chart */
   cumulative: Points;
+  /** cumulative energy in kWh, at the same points */
+  cumulativeKwh: Points;
 }
 
 /** Spot price (SEK/kWh, no VAT) at an instant, or null. `slots` sorted by start. */
@@ -51,6 +53,7 @@ export function estimate(label: string, watts: number, use: Points, since: numbe
   let sek = 0;
   let unknown = 0;
   const cumulative: Points = [[since, 0]];
+  const cumulativeKwh: Points = [[since, 0]];
   let nextMark = since + 3600;
   let idx = 0;
   let current: number | null = null;
@@ -72,11 +75,13 @@ export function estimate(label: string, watts: number, use: Points, since: numbe
     }
     if (t + STEP >= nextMark) {
       cumulative.push([Math.min(nextMark, until), sek]);
+      cumulativeKwh.push([Math.min(nextMark, until), kwh]);
       nextMark += 3600;
     }
   }
   cumulative.push([until, sek]);
-  return { label, watts, kwh, sek, unknown, cumulative };
+  cumulativeKwh.push([until, kwh]);
+  return { label, watts, kwh, sek, unknown, cumulative, cumulativeKwh };
 }
 
 /** Cumulative cost lines for the chart, one per appliance. */
@@ -157,17 +162,36 @@ export function computeCosts(input: CostInput): CostResult[] {
   return out.map((o) => o.result).sort((a, b) => b.sek - a.sek);
 }
 
-/** Cost of one appliance inside each [from, to) bucket (epoch seconds), read off its hourly cumulative curve. */
-export function costPerBucket(r: CostResult, buckets: [number, number][]): number[] {
+/** The growth of a cumulative hourly curve inside each [from, to) bucket (epoch seconds). */
+export function perBucket(cumulative: Points, buckets: [number, number][]): number[] {
   const at = (t: number) => {
     let v = 0;
-    for (const [pt, sek] of r.cumulative) {
+    for (const [pt, x] of cumulative) {
       if (pt > t) break;
-      v = sek;
+      v = x;
     }
     return v;
   };
   return buckets.map(([a, b]) => Math.max(0, at(b) - at(a)));
+}
+
+/** Cost of one appliance inside each bucket, read off its hourly cumulative curve. */
+export function costPerBucket(r: CostResult, buckets: [number, number][]): number[] {
+  return perBucket(r.cumulative, buckets);
+}
+
+/** Energy (kWh) of one appliance inside each bucket; per hour that is its mean power in kW. */
+export function kwhPerBucket(r: CostResult, buckets: [number, number][]): number[] {
+  return perBucket(r.cumulativeKwh, buckets);
+}
+
+/** Mean price paid per kWh (spot x VAT + surcharge) inside each bucket, null where no spot price is known. */
+export function pricePerBucket(pricing: Pricing, buckets: [number, number][]): (number | null)[] {
+  return buckets.map(([a, b]) => {
+    const inside = pricing.slots.filter((s) => s.start < b && s.end > a);
+    if (!inside.length) return null;
+    return (inside.reduce((n, s) => n + s.sek, 0) / inside.length) * pricing.vat + pricing.surcharge;
+  });
 }
 
 /** A thermostat silent this long (the engine's history limit) is dead even if zigbee2mqtt replayed its cached state. */
