@@ -225,7 +225,11 @@
       {/each}
     </div>
     {#if !byHand && modes.filter((m) => m.inUse).length > 1}
-      <p class="overlap">Övergång: {modes.filter((m) => m.inUse).map((m) => m.name).join(' och ')} räknas båda just nu, varje rum får det varmaste.</p>
+      {@const slack = typeof home.cells['heat_overlap_slack']?.value === 'number' ? (home.cells['heat_overlap_slack']?.value as number) : 0}
+      <p class="overlap">
+        Övergång: {modes.filter((m) => m.inUse).map((m) => m.name).join(' och ')} räknas båda just nu, varje rum får det varmaste{#if slack > 0}, men
+          {slack === 1 ? 'en grad' : `${slack} grader`} under räcker{/if}.
+      </p>
     {/if}
   {/if}
 </section>
