@@ -65,32 +65,32 @@ export function namesFromTables(files: Record<string, string>): Names {
   const cells: Record<string, string> = {};
   for (const c of rows('cells.tsv')) if (c['id'] && c['name']) cells[c['id']] = c['name'];
 
-  // history.tsv: per record, the quoted constant in `sensor` / `name`, and the first device or cell its formulas read.
+  // history.tsv: per record, the quoted constant in `sensor` / `name`, and the first device its formulas read, else the
+  // first named cell. A device wins over a cell read earlier: a heater's `pi` may be a computed duty cell while its
+  // `current` reads the device, and the device is what has a room and a rated power.
   const constant = new Map<string, string>();
-  const reads = new Map<string, string>();
+  const readsDevice = new Map<string, string>();
+  const readsCell = new Map<string, string>();
   for (const h of rows('history.tsv')) {
     const rec = h['record'];
     const f = h['formula'] ?? '';
     if (!rec) continue;
     const q = /^"(.*)"$/.exec(f);
     if (q && (h['field'] === 'sensor' || h['field'] === 'name')) constant.set(rec, q[1]!);
-    else if (!q && !reads.has(rec)) {
+    else if (!q && !readsDevice.has(rec)) {
       for (const ref of f.match(REF_RE) ?? []) {
         const dev = ref.split('.')[0]!;
         if (devices[dev]) {
-          reads.set(rec, dev);
+          readsDevice.set(rec, dev);
           break;
         }
-        if (cells[ref]) {
-          reads.set(rec, ref);
-          break;
-        }
+        if (cells[ref] && !readsCell.has(rec)) readsCell.set(rec, ref);
       }
     }
   }
   const sources: Record<string, string> = {};
   for (const [rec, c] of constant) {
-    const r = reads.get(rec);
+    const r = readsDevice.get(rec) ?? readsCell.get(rec);
     if (r) sources[c] = r;
   }
   return { devices, deviceRoom, deviceKind, deviceWatts, rooms, sources, cells };
