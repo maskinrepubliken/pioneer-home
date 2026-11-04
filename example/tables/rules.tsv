@@ -18,3 +18,5 @@ study_heat	on study_target		set thermostat in study setpoint={study_target}	yes	
 floor1_sets_target	on floor1.setpoint	AND(NOT(ISBLANK(PREV(floor1.setpoint))), floor1.setpoint <> study_target)	set study_target {floor1.setpoint}	yes	ändrar man på termostaten blir det rummets måltemperatur (och de andra termostaterna följer); första värdet efter start räknas inte
 heater1_sets_target	on heater1.setpoint	AND(NOT(ISBLANK(PREV(heater1.setpoint))), heater1.setpoint <> study_target)	set study_target {heater1.setpoint}	yes	ändrar man på panelvärmaren blir det rummets måltemperatur
 floor2_sets_target	on floor2.setpoint	AND(NOT(ISBLANK(PREV(floor2.setpoint))), floor2.setpoint <> living_room_target)	set living_room_target {floor2.setpoint}	yes	ändrar man på termostaten blir det rummets måltemperatur
+living_room_plan_follow	on living_room_plan		set living_room_target {living_room_plan}	yes	värmeläget sätter rummets måltemperatur när planen ändras
+study_plan_follow	on study_plan		set study_target {study_plan}	yes	värmeläget sätter rummets måltemperatur när planen ändras

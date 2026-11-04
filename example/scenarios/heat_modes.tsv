@@ -1,0 +1,24 @@
+# Heating modes. Hemma: 18 °C in the living room and the study, the bedroom cold. Sova: those two cold, the bedroom 17 °C. Borta: all cold (12 °C).
+# Schedule: Borta Wed-Thu 09-15, Sova 19-06 every day, Hemma otherwise. Around each switch both modes count for an hour and the warmer
+# wins: a room that gets warmer starts an hour early, a room that gets colder waits an hour. A mode chosen by hand holds until auto.
+step	at	do	expect	note
+1	2026-11-02T12:00		heat_active = "home"; living_room_plan = 18; study_plan = 18; bedroom_plan = 12; not fired living_room_plan_follow; not fired study_plan_follow	Monday noon: Hemma
+2	2026-11-02T17:59		NOT(heat_use_sleep); bedroom_plan = 12	
+3	2026-11-02T18:00:01		heat_use_sleep; bedroom_plan = 17; living_room_plan = 18; not fired living_room_plan_follow; not fired study_plan_follow	the bedroom starts warming an hour before Sova
+4	2026-11-02T19:30		heat_active = "sleep"; living_room_plan = 18; not fired living_room_plan_follow; not fired study_plan_follow	the living room waits an hour before it cools
+5	2026-11-02T20:00:01		living_room_plan = 12; sent floor2 occupied_heating_setpoint=12; sent floor1 occupied_heating_setpoint=12; sent heater1 occupied_heating_setpoint=12	an hour into Sova: cold
+6	2026-11-03T05:00:01		living_room_plan = 18; sent floor2 occupied_heating_setpoint=18; sent floor1 occupied_heating_setpoint=18; sent heater1 occupied_heating_setpoint=18; heat_active = "sleep"	an hour before Sova ends: warm up
+7	2026-11-03T07:00:01		heat_active = "home"; bedroom_plan = 12; not fired living_room_plan_follow; not fired study_plan_follow	the bedroom cools an hour after Sova
+8	2026-11-03T09:30		heat_active = "home"; living_room_plan = 18	Tuesday: no Borta
+9	2026-11-04T08:30		heat_use_away; heat_use_home; living_room_plan = 18	Wednesday: Borta counts from 08:00, but Hemma is warmer
+10	2026-11-04T09:30		heat_active = "away"; living_room_plan = 18; not fired living_room_plan_follow; not fired study_plan_follow	Borta, but the rooms wait an hour
+11	2026-11-04T10:00:01		living_room_plan = 12; sent floor2 occupied_heating_setpoint=12	
+12	2026-11-04T14:00:01		living_room_plan = 18; sent floor2 occupied_heating_setpoint=18; heat_active = "away"	warm again when Borta ends at 15
+13		set living_room_target 20	sent floor2 occupied_heating_setpoint=20; living_room_plan = 18	the target can still be set by hand
+14	2026-11-04T16:00		living_room_target = 20; not fired living_room_plan_follow; not fired study_plan_follow	until the plan changes
+15		set heat_mode "sleep"	heat_active = "sleep"; living_room_plan = 12; bedroom_plan = 17; sent floor2 occupied_heating_setpoint=12	Sova by hand: at once, no overlap
+16	2026-11-05T12:00		heat_active = "sleep"; living_room_plan = 12; not fired living_room_plan_follow; not fired study_plan_follow	a mode chosen by hand holds through the schedule
+17		set heat_mode "home"	living_room_plan = 18; sent floor2 occupied_heating_setpoint=18	
+18		set heat_mode "away"	heat_active = "away"; living_room_plan = 12; study_plan = 12; bedroom_plan = 12	
+19		set heat_mode "auto"	heat_active = "away"; living_room_plan = 12	back to the schedule: Thursday 12:00 is Borta
+20	2026-11-05T14:00:01		living_room_plan = 18; sent floor2 occupied_heating_setpoint=18	

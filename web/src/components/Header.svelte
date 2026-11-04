@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { home, sendAction } from '../lib/state.svelte';
+  import { home } from '../lib/state.svelte';
   import type { View } from '../lib/routes';
 
   let { view }: { view: View } = $props();
 
   const NAV: { id: View; label: string }[] = [
+    { id: 'heat', label: 'Värme' },
     { id: 'live', label: 'Live' },
     { id: 'tables', label: 'Tabeller' },
     { id: 'trace', label: 'Logg' },
@@ -12,13 +13,6 @@
     { id: 'costs', label: 'Kostnader' },
   ];
 
-  let busy = $state<string | null>(null);
-  async function start(seq: string) {
-    busy = seq;
-    await sendAction(`start ${seq}`);
-    busy = null;
-  }
-  const sequences = $derived(home.tables?.sequences ?? []);
 
   /** The house's name: setting `title` in settings.tsv, "pioneer-home" when it is empty. Also the browser tab title. */
   const title = $derived.by(() => {
@@ -32,7 +26,7 @@
 
 <header>
   <div class="bar">
-    <a class="brand" href="#/live" aria-label={title}>
+    <a class="brand" href="#/heat" aria-label={title}>
       <span class="dot" class:ok={home.connected} title={home.connected ? 'ansluten' : 'frånkopplad, återansluter…'}></span>
       <span class="title">{title}</span>
       <span class="conn">{home.connected ? 'ansluten' : 'frånkopplad'}</span>
@@ -46,9 +40,6 @@
       {#if home.health?.dryRun}
         <span class="pill warn" title="DRY_RUN=true: åtgärder loggas men skickas inte">TORRKÖRNING</span>
       {/if}
-      {#each sequences as seq (seq)}
-        <button class="btn small" disabled={busy !== null} title={'Starta ' + seq} onclick={() => start(seq)}>▶ {seq}</button>
-      {/each}
     </div>
   </div>
   {#if home.configError}
