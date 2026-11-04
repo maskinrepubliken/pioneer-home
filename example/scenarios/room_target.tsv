@@ -1,5 +1,11 @@
 # A room target temperature is pushed to every thermostat in the room, resolved when the rule runs.
+# Changing the setpoint on a thermostat itself makes it the room's target, and the other thermostats in the room follow.
 step	at	do	expect	note
 1	2026-09-28T12:00		nothing sent	startup never pushes the target
-2		set living_room_target 22	sent floor2 occupied_heating_setpoint=22	the living room has one thermostat
-3		set study_target 19.5	sent floor1 occupied_heating_setpoint=19.5; sent heater1 occupied_heating_setpoint=19.5	both thermostats in the study
+2		mqtt zigbee2mqtt/FLOOR2 {"occupied_heating_setpoint":16}	nothing sent; not fired floor2_sets_target; living_room_target <> 16	the first value after startup (maybe a retained message) is not taken as a change
+3		set living_room_target 22	sent floor2 occupied_heating_setpoint=22	the living room has one thermostat
+4		set study_target 19.5	sent floor1 occupied_heating_setpoint=19.5; sent heater1 occupied_heating_setpoint=19.5	both thermostats in the study
+5		mqtt zigbee2mqtt/FLOOR1 {"occupied_heating_setpoint":20.5}	study_target = 20.5; sent heater1 occupied_heating_setpoint=20.5; fired floor1_sets_target	turned up on the floor thermostat: the room follows, the panel heater too
+6		mqtt zigbee2mqtt/HEATER1 {"occupied_heating_setpoint":19}	study_target = 19; sent floor1 occupied_heating_setpoint=19; fired heater1_sets_target	and the other way round
+7		mqtt zigbee2mqtt/FLOOR1 {"occupied_heating_setpoint":19}	nothing sent; not fired floor1_sets_target	the echo of our own command changes nothing
+8		mqtt zigbee2mqtt/FLOOR2 {"occupied_heating_setpoint":23}	living_room_target = 23; fired floor2_sets_target	
