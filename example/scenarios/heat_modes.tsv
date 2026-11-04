@@ -1,6 +1,6 @@
 # Heating modes. Hemma: 18 °C in the living room and the study, the bedroom cold. Sova: those two cold, the bedroom 17 °C. Borta: all cold (12 °C).
 # Schedule: Borta Wed-Thu 09-15, Sova 19-06 every day, Hemma otherwise. Around each switch both modes count for an hour and the warmer
-# wins: a room that gets warmer starts an hour early, a room that gets colder waits an hour. A mode chosen by hand holds until auto; manual (chosen on the page, a target changed in the UI, or a setpoint changed on a thermostat) leaves the targets alone until the schedule's next switch, or until a mode or auto is chosen.
+# wins: a room that gets warmer starts an hour early, a room that gets colder waits an hour. A mode chosen by hand holds until auto; manual (chosen on the page, a target changed in the UI, or a setpoint changed on a thermostat) leaves the targets alone until a mode or auto is chosen.
 step	at	do	expect	note
 1	2026-11-02T12:00		heat_active = "home"; living_room_plan = 18; study_plan = 18; bedroom_plan = 12; not fired living_room_plan_follow; not fired study_plan_follow	Monday noon: Hemma
 2	2026-11-02T17:59		NOT(heat_use_sleep); bedroom_plan = 12	
@@ -24,9 +24,8 @@ step	at	do	expect	note
 20	2026-11-05T14:00:01		living_room_plan = 18; sent floor2 occupied_heating_setpoint=18	
 21	2026-11-05T16:00	set heat_mode "manual"	heat_active = "manual"; not fired living_room_plan_follow; not fired study_plan_follow; not fired heat_mode_apply	Manuellt chosen on the page (or a target changed in the UI)
 22		set living_room_target 21	sent floor2 occupied_heating_setpoint=21	
-23	2026-11-05T18:30		living_room_target = 21; heat_mode = "manual"; not fired heat_manual_ends	the overlap before Sova changes the plans, but Manuellt leaves the targets alone
-24	2026-11-05T19:00:01		fired heat_manual_ends; heat_mode = "auto"; living_room_target = 18; sent floor2 occupied_heating_setpoint=18	the schedule switches to Sova: Manuellt ends and the plan applies (the room keeps 18 for the overlap hour)
-25	2026-11-05T20:00:01		living_room_target = 12; sent floor2 occupied_heating_setpoint=12	
-26		mqtt zigbee2mqtt/FLOOR2 {"occupied_heating_setpoint":19}	fired floor2_sets_target; heat_mode = "manual"; living_room_target = 19	turned on the thermostat: Manuellt
-27	2026-11-06T05:00:01		living_room_plan = 18; living_room_target = 19; not fired living_room_plan_follow	the morning warm-up waits while Manuellt
-28	2026-11-06T06:00:01		fired heat_manual_ends; heat_mode = "auto"; living_room_target = 18; sent floor2 occupied_heating_setpoint=18	Sova ends at 06: so does Manuellt
+23	2026-11-05T19:00:01		living_room_target = 21; heat_mode = "manual"; not fired heat_mode_apply	Sova starts: Manuellt leaves the targets alone
+24	2026-11-05T20:00:01		living_room_plan = 12; living_room_target = 21; not fired living_room_plan_follow	
+25		mqtt zigbee2mqtt/FLOOR2 {"occupied_heating_setpoint":19}	fired floor2_sets_target; heat_mode = "manual"; living_room_target = 19	turned on the thermostat: still Manuellt, with the new target
+26	2026-11-06T06:00:01		living_room_target = 19; heat_mode = "manual"	Manuellt holds through every switch of the schedule
+27		set heat_mode "auto"	fired heat_mode_apply; living_room_target = 18; sent floor2 occupied_heating_setpoint=18	until Schema (or a mode) is chosen: the plan applies at once

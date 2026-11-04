@@ -196,7 +196,7 @@
       {:else if heat.mode === null}
         Inga värmelägen i tabellerna än (heat_mode i Celler).
       {:else if heat.mode === MANUAL}
-        Ändrat för hand, här eller på en termostat. Gäller till nästa byte i schemat, eller tills du väljer något annat.
+        Ändrat för hand, här eller på en termostat. Gäller tills du väljer Schema eller ett läge.
       {:else if byHand}
         Valt för hand. Gäller tills du väljer Schema.
       {:else}
