@@ -11,7 +11,7 @@
   import { api, ApiError, type PriceSlot } from '../lib/api';
   import { computeCosts, costPerBucket, isUnreachable, kr, type CostResult } from '../lib/cost';
   import { formatQuantity, roomName, timeOnly } from '../lib/format';
-  import { AUTO, cellNotes, heatModes, heatRooms, heatState } from '../lib/heat';
+  import { AUTO, MANUAL, MANUAL_NAME, cellNotes, heatModes, heatRooms, heatState, targetActions } from '../lib/heat';
   import { dutySeries, isPulsing, meanSeries, namesFromTables, roomOfLocation, seriesBy, sourceId, sourceName, type Rec, type Series } from '../lib/history';
   import { buildLive } from '../lib/live';
   import { home, sendAction } from '../lib/state.svelte';
@@ -22,10 +22,13 @@
   const layout = $derived(buildLive(cells, kinds, home.rooms));
   const modes = $derived(heatModes(cells));
   const heat = $derived(heatState(home.cells));
-  const rooms = $derived(heatRooms(layout, home.cells, home.rooms, modes));
+  const rooms = $derived(heatRooms(layout, home.cells, home.rooms));
+  const heated = $derived(rooms.filter((r) => r.heated));
+  const others = $derived(rooms.filter((r) => !r.heated));
   const notes = $derived(cellNotes(home.tables?.files ?? {}));
-  const modeName = (id: string | null) => (id === null ? '—' : (modes.find((m) => m.id === id)?.name ?? id));
-  const manual = $derived(heat.mode !== null && heat.mode !== AUTO);
+  const modeName = (id: string | null) => (id === null ? '—' : id === MANUAL ? MANUAL_NAME : (modes.find((m) => m.id === id)?.name ?? id));
+  /** a mode chosen by hand (not the schedule); `manual` = targets changed by hand */
+  const byHand = $derived(heat.mode !== null && heat.mode !== AUTO);
 
   let choosing = $state<string | null>(null);
   async function choose(id: string) {
@@ -35,7 +38,7 @@
     choosing = null;
   }
 
-  /** Room target stepper: ±0.5, rapid taps sent as one `set <room>_target 19.5` (as VarRow does). */
+  /** Room target stepper: ±0.5, rapid taps sent as one `set <room>_target 19.5` (as VarRow does), after `set heat_mode manual`. */
   let pending = $state<Record<string, number>>({});
   const timers: Record<string, ReturnType<typeof setTimeout>> = {};
   function step(id: string, current: number | null, delta: number) {
@@ -43,12 +46,15 @@
     pending = { ...pending, [id]: v };
     clearTimeout(timers[id]);
     timers[id] = setTimeout(async () => {
-      await sendAction(`set ${id} ${v}`);
+      // the heating mode becomes Manuellt first, so the schedule leaves the new target alone
+      for (const a of targetActions(id, v, home.cells)) await sendAction(a);
       const { [id]: _, ...rest } = pending;
       pending = rest;
     }, 600);
   }
   const deg = (n: number | null) => (n === null ? '—' : formatQuantity(Math.round(n * 10) / 10, '°C'));
+  /** Short form for the room list: 19.5° */
+  const short = (n: number | null) => (n === null ? '—' : `${(Math.round(n * 10) / 10).toFixed(1)}°`);
 
   /** Phones get shorter charts. */
   let narrow = $state(false);
@@ -110,7 +116,7 @@
 
   const names = $derived(namesFromTables(home.tables?.files ?? {}));
   const label = (key: string) => sourceName(names, key);
-  const heatedRooms = $derived(new Set(rooms.map((r) => r.id)));
+  const heatedRooms = $derived(new Set(heated.map((r) => r.id)));
   const roomOfHeater = (r: Rec) => names.deviceRoom[sourceId(names, String(r['sensor'] ?? ''))] ?? null;
   const roomTitle = (id: string) => roomName(id, home.rooms);
 
@@ -118,7 +124,7 @@
   const temperatures = $derived.by((): Series[] => {
     const lines: Series[] = [];
     const targets: Series[] = [];
-    for (const r of rooms) {
+    for (const r of heated) {
       const c = climate.filter((x: Rec) => typeof x['location'] === 'string' && roomOfLocation(names, x['location'], String(x['sensor'] ?? '')) === r.id);
       const h = heating.filter((x: Rec) => roomOfHeater(x) === r.id);
       const sources = c.length ? seriesBy(c, 'sensor', 'temperature', label) : seriesBy(h, 'sensor', 'current', label);
@@ -184,7 +190,9 @@
         laddar…
       {:else if heat.mode === null}
         Inga värmelägen i tabellerna än (heat_mode i Celler).
-      {:else if manual}
+      {:else if heat.mode === MANUAL}
+        Måltemperaturerna är ändrade för hand. Välj ett läge eller Schema för att gå tillbaka.
+      {:else if byHand}
         Valt för hand. Gäller tills du väljer Schema.
       {:else}
         Följer schemat{#if notes['heat_sched_now']}: {notes['heat_sched_now']}{/if}.
@@ -203,75 +211,61 @@
           disabled={choosing !== null}
           onclick={() => choose(m.id)}
         >
-          <span class="hole" class:filled={m.id === AUTO ? !manual : m.inUse} aria-hidden="true"></span>
+          <span class="hole" class:filled={m.id === AUTO ? heat.mode === AUTO : m.inUse} aria-hidden="true"></span>
           <span class="cname">{m.name}</span>
           {#if chosen}<span class="tag">vald</span>{/if}
         </button>
       {/each}
     </div>
-    {#if !manual && modes.filter((m) => m.inUse).length > 1}
+    {#if !byHand && modes.filter((m) => m.inUse).length > 1}
       <p class="overlap">Övergång: {modes.filter((m) => m.inUse).map((m) => m.name).join(' och ')} räknas båda just nu, varje rum får det varmaste.</p>
     {/if}
   {/if}
 </section>
 
-<div class="rooms">
-  {#each rooms as r (r.id)}
+<section class="panel roomlist" aria-label="Rummen">
+  {#snippet row(r: (typeof rooms)[number])}
     {@const heatingNow = r.heaters.some((h) => h.heating === true)}
+    {@const demand = Math.max(0, ...r.heaters.map((h) => (h.heating === true ? (h.demand ?? 0) : 0)))}
     {@const targetId = r.target?.id ?? null}
     {@const target = typeof r.target?.value === 'number' ? r.target.value : null}
     {@const shown = targetId ? (pending[targetId] ?? target) : null}
-    <section class="room card" aria-labelledby="h-{r.id}">
-      <header>
-        <h2 id="h-{r.id}">{r.title}</h2>
-        {#if r.heaters.length}
-          <span class="pill" class:on={heatingNow}>{heatingNow ? 'värmer' : 'vilar'}</span>
-        {:else}
-          <span class="pill neutral">ingen termostat</span>
-        {/if}
-      </header>
-      <div class="now">
-        <b class="temp value" title={r.sources.join(', ')}>{deg(r.temperature)}</b>
-        {#if targetId}
-          <span class="stepper" role="group" aria-label="Måltemperatur i {r.title}">
-            <button class="btn small" onclick={() => step(targetId, target, -0.5)} aria-label="Sänk målet i {r.title}">−</button>
-            <span class="sp"><span class="lbl">mål</span><b class="value" class:pending={targetId in pending} aria-live="polite">{deg(shown)}</b></span>
-            <button class="btn small" onclick={() => step(targetId, target, 0.5)} aria-label="Höj målet i {r.title}">+</button>
-          </span>
-        {:else if r.plan !== null}
-          <span class="plan-only"><span class="lbl">plan</span> <b class="value">{deg(r.plan)}</b></span>
-        {/if}
+    <li class="row">
+      <div class="who">
+        <span class="rname">{r.title}</span>
+        <span class="sub" title={r.heaters.map((h) => `${h.name}: ${h.offline ? 'nås inte' : h.heating ? 'värmer' : 'vilar'}`).join(', ')}>
+          {#if r.heated && r.heaters.length}
+            <span class="hole" class:filled={heatingNow} aria-hidden="true"></span>
+            {#if r.heaters.every((h) => h.offline)}nås inte{:else if heatingNow}värmer{#if demand > 0}&nbsp;{Math.round(demand)}&nbsp;%{/if}{:else}vilar{/if}
+          {:else if r.heated}
+            ingen termostat{#if r.plan !== null}&nbsp;· plan {short(r.plan)}{/if}
+          {:else if r.humidity !== null}
+            {formatQuantity(Math.round(r.humidity), '%')} fukt
+          {/if}
+        </span>
       </div>
-      {#if targetId && r.plan !== null && target !== null && r.plan !== target}
-        <p class="aside">Planen säger {deg(r.plan)} från nästa byte.</p>
+      <b class="temp value" title={r.sources.join(', ')}>{short(r.temperature)}</b>
+      {#if targetId}
+        <span class="stepper" role="group" aria-label="Måltemperatur i {r.title}">
+          <button class="btn small" onclick={() => step(targetId, target, -0.5)} aria-label="Sänk målet i {r.title}">−</button>
+          <span class="sp"><span class="lbl">mål</span><b class="value" class:pending={targetId in pending} aria-live="polite">{short(shown)}</b></span>
+          <button class="btn small" onclick={() => step(targetId, target, 0.5)} aria-label="Höj målet i {r.title}">+</button>
+        </span>
+      {:else}
+        <span></span>
       {/if}
-
-      <ol class="modes" aria-label="Rummets temperatur per läge">
-        {#each modes as m (m.id)}
-          <li class:inuse={m.inUse}>
-            <span class="hole" class:filled={m.inUse} aria-hidden="true"></span>
-            <span class="mname">{m.name}</span>
-            <b class="value">{r.modeTemps[m.id] === null ? '—' : `${formatQuantity(r.modeTemps[m.id]!)}°`}</b>
-            {#if m.inUse}<span class="sr">(räknas nu)</span>{/if}
-          </li>
-        {/each}
-      </ol>
-
-      {#if r.heaters.length}
-        <ul class="heaters">
-          {#each r.heaters as h (h.id)}
-            <li>
-              <span class="hname">{h.name}</span>
-              <span class="value">
-                {#if h.offline}nås inte{:else if h.heating === true}värmer{#if h.demand !== null && h.demand > 0}&nbsp;{Math.round(h.demand)}&nbsp;%{/if}{:else if h.heating === false}vilar{:else}—{/if}{#if h.setpoint !== null && !h.offline}&nbsp;· {deg(h.setpoint)}{/if}
-              </span>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </section>
-  {/each}
-</div>
+    </li>
+  {/snippet}
+  <ul class="rows">
+    {#each heated as r (r.id)}{@render row(r)}{/each}
+  </ul>
+  {#if others.length}
+    <h2 class="others">Övriga rum</h2>
+    <ul class="rows">
+      {#each others as r (r.id)}{@render row(r)}{/each}
+    </ul>
+  {/if}
+</section>
 
 <section class="panel recent" aria-labelledby="h-48">
   <header class="recent-head">
@@ -434,64 +428,91 @@
     line-height: 1.45;
   }
 
-  .rooms {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
-    gap: var(--space-3);
+  /* The rooms: one line each, temperature and target in columns, so they line up and a phone shows them all. */
+  .roomlist {
     margin-bottom: var(--space-4);
-    align-items: start;
+    padding-top: var(--space-2);
+    padding-bottom: var(--space-2);
   }
-  .room {
-    padding: var(--space-4);
+  .rows {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto 132px;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) 0;
+    min-height: 52px;
+  }
+  .row + .row {
+    border-top: 1px solid var(--line);
+  }
+  .who {
+    display: flex;
+    flex-direction: column;
     min-width: 0;
   }
-  .room header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
+  .rname {
+    font-family: var(--font-ui);
+    font-weight: 600;
+    font-size: 15px;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .room h2,
-  .recent h2 {
-    font-family: var(--font-display);
-    font-size: 16px;
-    line-height: 1.1;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin: 0;
-  }
-  /* Temperature left, the target stepper right, on one line. */
-  .now {
-    display: flex;
+  .sub {
+    display: inline-flex;
     align-items: center;
-    justify-content: space-between;
     flex-wrap: wrap;
-    gap: var(--space-2) var(--space-3);
-    margin: var(--space-2) 0;
+    gap: 0 5px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--ink-muted);
+  }
+  .sub .hole {
+    width: 8px;
+    height: 8px;
+    color: var(--surface-forest);
   }
   .temp {
     font-family: var(--font-mono);
-    font-size: 34px;
+    font-size: 22px;
     line-height: 1;
     font-weight: 400;
+    text-align: right;
   }
-  .stepper,
-  .plan-only {
+  .others {
+    font-family: var(--font-display);
+    font-size: 12px;
+    line-height: 1.2;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--surface-rust);
+    margin: var(--space-3) 0 0;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line-strong);
+  }
+  .stepper {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-2);
+    justify-content: flex-end;
+    gap: var(--space-1);
   }
   .lbl {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 10px;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--ink-faint);
   }
   .stepper .btn {
-    min-width: 36px;
-    min-height: 36px;
+    min-width: 34px;
+    min-height: 34px;
     padding: 0;
     font-size: 18px;
   }
@@ -499,84 +520,14 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    min-width: 7ch;
-    line-height: 1.2;
+    min-width: 6ch;
+    line-height: 1.15;
   }
   .sp .value {
-    font-size: 16px;
+    font-size: 15px;
   }
   .sp .pending {
     text-decoration: underline dotted;
-  }
-  .aside {
-    margin: 0 0 var(--space-2);
-    font-family: var(--font-prose);
-    font-style: italic;
-    font-size: 13px;
-    line-height: 1.4;
-    color: var(--ink-muted);
-  }
-  /* The room's temperature per mode: one row of small chips, the modes that count now with a filled hole. */
-  .modes {
-    list-style: none;
-    margin: 0;
-    padding: var(--space-2) 0 0;
-    border-top: 1px solid var(--line);
-    display: flex;
-    gap: var(--space-1);
-  }
-  .modes li {
-    flex: 1 1 auto;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 5px;
-    padding: 4px 6px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-pill);
-    font-size: 13px;
-    white-space: nowrap;
-  }
-  .modes li.inuse {
-    border: 2px solid var(--surface-forest);
-    padding: 3px 5px;
-  }
-  .modes .mname {
-    color: var(--ink-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .modes .hole {
-    color: var(--surface-forest);
-  }
-  .modes .value {
-    font-size: 13px;
-  }
-  .heaters {
-    list-style: none;
-    margin: var(--space-2) 0 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    font-size: 13px;
-    line-height: 1.4;
-  }
-  .heaters li {
-    display: flex;
-    justify-content: space-between;
-    gap: var(--space-3);
-  }
-  .heaters .hname {
-    color: var(--ink-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .heaters .value {
-    font-size: 13px;
-    white-space: nowrap;
   }
 
   .panel {
@@ -585,6 +536,15 @@
     border-radius: var(--radius-panel);
     padding: var(--space-4);
     min-width: 0;
+  }
+  .recent h2 {
+    font-family: var(--font-display);
+    font-size: 16px;
+    line-height: 1.1;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0;
   }
   .recent-head {
     display: flex;
@@ -656,17 +616,9 @@
     font-size: 12px;
     line-height: 1.5;
   }
-  .sr {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-  }
   /* Phones: the hero and the panels run to the screen edge minus a small gutter, everything one size down. */
   @media (max-width: 640px) {
     .hero,
-    .room,
     .panel {
       margin-left: calc(-1 * var(--space-2));
       margin-right: calc(-1 * var(--space-2));
@@ -675,12 +627,34 @@
       padding: var(--space-4);
       border-radius: var(--radius-card);
     }
-    .room {
-      padding: var(--space-3) var(--space-4);
-    }
     .panel {
       padding: var(--space-4) var(--space-3);
       border-radius: var(--radius-card);
+    }
+    .roomlist {
+      padding-top: var(--space-1);
+      padding-bottom: var(--space-1);
+    }
+    .row {
+      grid-template-columns: minmax(0, 1fr) auto 116px;
+      gap: var(--space-2);
+      min-height: 48px;
+    }
+    .rname {
+      font-size: 14px;
+    }
+    .temp {
+      font-size: 19px;
+    }
+    .stepper .btn {
+      min-width: 32px;
+      min-height: 32px;
+    }
+    .sp {
+      min-width: 5.5ch;
+    }
+    .sp .value {
+      font-size: 14px;
     }
     .tag {
       display: none;
@@ -689,16 +663,6 @@
       font-size: 14px;
       gap: 5px;
       padding: 6px 4px;
-    }
-    .temp {
-      font-size: 28px;
-    }
-    .stepper {
-      gap: var(--space-1);
-    }
-    .modes li {
-      font-size: 12px;
-      gap: 4px;
     }
     .total .big {
       font-size: 24px;

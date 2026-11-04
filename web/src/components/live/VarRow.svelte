@@ -2,7 +2,8 @@
   import { formatQuantity } from '../../lib/format';
   /** A held value (cells.tsv row without formula) as a control: boolean -> switch with PÅ/AV, others -> the value. */
   import type { Cell } from '../../lib/api';
-  import { sendAction } from '../../lib/state.svelte';
+  import { home, sendAction } from '../../lib/state.svelte';
+  import { targetActions } from '../../lib/heat';
   import CellValue from '../CellValue.svelte';
   import Switch from './Switch.svelte';
 
@@ -19,7 +20,8 @@
     timer = setTimeout(() => {
       const v = pending;
       pending = null;
-      if (v !== null) void sendAction(`set ${cell.id} ${v}`);
+      // a room target set by hand makes the heating mode manual (lib/heat.ts), one action after the other
+      if (v !== null) void (async () => { for (const a of targetActions(cell.id, v, home.cells)) await sendAction(a); })();
     }, 600);
   }
 </script>

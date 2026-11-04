@@ -1,6 +1,6 @@
 # Heating modes. Hemma: 18 °C in the living room and the study, the bedroom cold. Sova: those two cold, the bedroom 17 °C. Borta: all cold (12 °C).
 # Schedule: Borta Wed-Thu 09-15, Sova 19-06 every day, Hemma otherwise. Around each switch both modes count for an hour and the warmer
-# wins: a room that gets warmer starts an hour early, a room that gets colder waits an hour. A mode chosen by hand holds until auto.
+# wins: a room that gets warmer starts an hour early, a room that gets colder waits an hour. A mode chosen by hand holds until auto; manual (a target changed in the UI) leaves the targets alone until a mode or auto is chosen.
 step	at	do	expect	note
 1	2026-11-02T12:00		heat_active = "home"; living_room_plan = 18; study_plan = 18; bedroom_plan = 12; not fired living_room_plan_follow; not fired study_plan_follow	Monday noon: Hemma
 2	2026-11-02T17:59		NOT(heat_use_sleep); bedroom_plan = 12	
@@ -22,3 +22,7 @@ step	at	do	expect	note
 18		set heat_mode "away"	heat_active = "away"; living_room_plan = 12; study_plan = 12; bedroom_plan = 12	
 19		set heat_mode "auto"	heat_active = "away"; living_room_plan = 12	back to the schedule: Thursday 12:00 is Borta
 20	2026-11-05T14:00:01		living_room_plan = 18; sent floor2 occupied_heating_setpoint=18	
+21		set heat_mode "manual"	heat_active = "manual"; not fired living_room_plan_follow; not fired study_plan_follow; not fired heat_mode_apply	a target changed in the UI: Manuellt
+22		set living_room_target 21	sent floor2 occupied_heating_setpoint=21	
+23	2026-11-05T20:00:01		living_room_plan = 12; living_room_target = 21; not fired living_room_plan_follow	Sova starts, but Manuellt leaves the targets alone
+24		set heat_mode "auto"	fired heat_mode_apply; living_room_target = 12; sent floor2 occupied_heating_setpoint=12	Schema again: the plan applies at once
