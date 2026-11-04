@@ -8,7 +8,6 @@
   import { onMount } from 'svelte';
   import Chart from '../components/Chart.svelte';
   import CostBars from '../components/CostBars.svelte';
-  import VarRow from '../components/live/VarRow.svelte';
   import { api, ApiError, type PriceSlot } from '../lib/api';
   import { computeCosts, costPerBucket, isUnreachable, kr, type CostResult } from '../lib/cost';
   import { formatQuantity, roomName, timeOnly } from '../lib/format';
@@ -35,6 +34,31 @@
     await sendAction(`set heat_mode ${id}`);
     choosing = null;
   }
+
+  /** Room target stepper: ±0.5, rapid taps sent as one `set <room>_target 19.5` (as VarRow does). */
+  let pending = $state<Record<string, number>>({});
+  const timers: Record<string, ReturnType<typeof setTimeout>> = {};
+  function step(id: string, current: number | null, delta: number) {
+    const v = Math.round(((pending[id] ?? current ?? 20) + delta) * 2) / 2;
+    pending = { ...pending, [id]: v };
+    clearTimeout(timers[id]);
+    timers[id] = setTimeout(async () => {
+      await sendAction(`set ${id} ${v}`);
+      const { [id]: _, ...rest } = pending;
+      pending = rest;
+    }, 600);
+  }
+  const deg = (n: number | null) => (n === null ? '—' : formatQuantity(Math.round(n * 10) / 10, '°C'));
+
+  /** Phones get shorter charts. */
+  let narrow = $state(false);
+  onMount(() => {
+    const mq = matchMedia('(max-width: 640px)');
+    const set = () => (narrow = mq.matches);
+    set();
+    mq.addEventListener('change', set);
+    return () => mq.removeEventListener('change', set);
+  });
 
   // ---- the last 48 hours ------------------------------------------------------------------------------------------
   const HOURS = 48;
@@ -194,28 +218,32 @@
 <div class="rooms">
   {#each rooms as r (r.id)}
     {@const heatingNow = r.heaters.some((h) => h.heating === true)}
+    {@const targetId = r.target?.id ?? null}
     {@const target = typeof r.target?.value === 'number' ? r.target.value : null}
+    {@const shown = targetId ? (pending[targetId] ?? target) : null}
     <section class="room card" aria-labelledby="h-{r.id}">
       <header>
         <h2 id="h-{r.id}">{r.title}</h2>
         {#if r.heaters.length}
           <span class="pill" class:on={heatingNow}>{heatingNow ? 'värmer' : 'vilar'}</span>
+        {:else}
+          <span class="pill neutral">ingen termostat</span>
         {/if}
       </header>
       <div class="now">
-        <b class="temp value">{r.temperature === null ? '—' : formatQuantity(Math.round(r.temperature * 10) / 10, '°C')}</b>
-        <span class="faint small">
-          {#if r.humidity !== null}{formatQuantity(Math.round(r.humidity), '%')} fukt · {/if}{r.sources.length ? r.sources.join(', ') : 'ingen givare'}
-        </span>
-      </div>
-
-      {#if r.target}
-        <ul class="target"><VarRow cell={r.target} /></ul>
-        {#if r.plan !== null && target !== null && r.plan !== target}
-          <p class="aside">Planen säger {formatQuantity(r.plan, '°C')}; måltemperaturen följer med vid nästa byte.</p>
+        <b class="temp value" title={r.sources.join(', ')}>{deg(r.temperature)}</b>
+        {#if targetId}
+          <span class="stepper" role="group" aria-label="Måltemperatur i {r.title}">
+            <button class="btn small" onclick={() => step(targetId, target, -0.5)} aria-label="Sänk målet i {r.title}">−</button>
+            <span class="sp"><span class="lbl">mål</span><b class="value" class:pending={targetId in pending} aria-live="polite">{deg(shown)}</b></span>
+            <button class="btn small" onclick={() => step(targetId, target, 0.5)} aria-label="Höj målet i {r.title}">+</button>
+          </span>
+        {:else if r.plan !== null}
+          <span class="plan-only"><span class="lbl">plan</span> <b class="value">{deg(r.plan)}</b></span>
         {/if}
-      {:else if r.plan !== null}
-        <p class="aside">Planerat {formatQuantity(r.plan, '°C')}. Ingen termostat i rummet än.</p>
+      </div>
+      {#if targetId && r.plan !== null && target !== null && r.plan !== target}
+        <p class="aside">Planen säger {deg(r.plan)} från nästa byte.</p>
       {/if}
 
       <ol class="modes" aria-label="Rummets temperatur per läge">
@@ -223,7 +251,7 @@
           <li class:inuse={m.inUse}>
             <span class="hole" class:filled={m.inUse} aria-hidden="true"></span>
             <span class="mname">{m.name}</span>
-            <b class="value">{r.modeTemps[m.id] === null ? '—' : formatQuantity(r.modeTemps[m.id]!, '°C')}</b>
+            <b class="value">{r.modeTemps[m.id] === null ? '—' : `${formatQuantity(r.modeTemps[m.id]!)}°`}</b>
             {#if m.inUse}<span class="sr">(räknas nu)</span>{/if}
           </li>
         {/each}
@@ -233,10 +261,9 @@
         <ul class="heaters">
           {#each r.heaters as h (h.id)}
             <li>
-              <span>{h.name}</span>
-              <span class="value small">
-                {#if h.offline}nås inte{:else if h.heating === true}värmer{#if h.demand !== null && h.demand > 0}&nbsp;{Math.round(h.demand)}&nbsp;%{/if}{:else if h.heating === false}vilar{:else}—{/if}
-                {#if h.setpoint !== null && !h.offline} · mål {formatQuantity(h.setpoint, '°C')}{/if}
+              <span class="hname">{h.name}</span>
+              <span class="value">
+                {#if h.offline}nås inte{:else if h.heating === true}värmer{#if h.demand !== null && h.demand > 0}&nbsp;{Math.round(h.demand)}&nbsp;%{/if}{:else if h.heating === false}vilar{:else}—{/if}{#if h.setpoint !== null && !h.offline}&nbsp;· {deg(h.setpoint)}{/if}
               </span>
             </li>
           {/each}
@@ -265,7 +292,7 @@
       <div class="total">
         <span class="label">Senaste dygnet</span>
         <b class="big">{kr(lastDay)}</b>
-        <span class="sub">{costs.length ? costs.map((c) => `${c.label} ${kr(c.sek)}`).join(' · ') : 'ingen värmekälla med effekt'}</span>
+        <span class="sub">de senaste 24 timmarna</span>
       </div>
     </div>
     {#if bars.length}
@@ -273,7 +300,7 @@
     {/if}
     <div class="charts">
       {#if temperatures.length}
-        <Chart since={span.since} until={span.until} title="Temperatur" unit="°C" series={temperatures} height={240} />
+        <Chart since={span.since} until={span.until} title="Temperatur" unit="°C" series={temperatures} height={narrow ? 170 : 220} />
       {/if}
       {#if demand.length}
         <Chart
@@ -284,6 +311,7 @@
           series={demand}
           min={0}
           max={100}
+          height={narrow ? 140 : 180}
           note={demand.some((s) => s.label.endsWith(' *')) ? '* Slår av och på i korta pulser; kurvan visar hur stor del av varje kvart den värmer.' : undefined}
         />
       {/if}
@@ -293,15 +321,22 @@
 </section>
 
 <style>
-  /* The mode block: a forest surface, the one big poster line of the page. */
+  /* The mode block: a forest surface, the one big poster line of the page. Compact: this page lives on a phone. */
   .hero {
     background: var(--surface-forest);
     color: var(--on-dark);
     border-radius: var(--radius-panel);
-    padding: var(--space-6) var(--space-6) var(--space-5);
-    margin-bottom: var(--space-5);
+    padding: var(--space-5);
+    margin-bottom: var(--space-4);
+  }
+  .hero-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: var(--space-4);
   }
   .eyebrow {
+    flex-basis: 100%;
     font-family: var(--font-display);
     font-size: 12px;
     line-height: 1.2;
@@ -314,39 +349,42 @@
   .mode {
     font-family: var(--font-display);
     font-weight: 900;
-    font-size: clamp(44px, 9vw, 84px);
-    line-height: 0.95;
+    font-size: clamp(34px, 7vw, 60px);
+    line-height: 1;
     letter-spacing: -0.01em;
     text-transform: uppercase;
-    margin: var(--space-2) 0 var(--space-3);
+    margin: var(--space-1) 0 0;
   }
   .status {
-    margin: 0;
-    font-size: 16px;
-    line-height: 1.5;
+    margin: var(--space-1) 0 0;
+    font-size: 14px;
+    line-height: 1.45;
     max-width: 60ch;
   }
   .choices {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-    margin-top: var(--space-5);
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+    gap: var(--space-1);
+    margin-top: var(--space-4);
+    max-width: 560px;
   }
   .choice {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-2);
-    min-height: 44px;
-    padding: 8px 20px 8px 14px;
+    justify-content: center;
+    gap: 6px;
+    min-height: 40px;
+    padding: 6px 8px;
     border-radius: var(--radius-pill);
     border: 1px solid var(--on-dark);
     background: var(--surface-forest);
     color: var(--on-dark);
     font-family: var(--font-ui);
-    font-size: 17px;
+    font-size: 15px;
     font-weight: 600;
     line-height: 1;
     cursor: pointer;
+    min-width: 0;
   }
   .choice:hover {
     background: var(--surface-ink);
@@ -366,15 +404,15 @@
   }
   .tag {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 400;
     letter-spacing: 0.1em;
     text-transform: uppercase;
   }
   /* A punch-card hole: filled = counts now, empty = not. */
   .hole {
-    width: 12px;
-    height: 12px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
     border: 1.5px solid currentColor;
     flex-shrink: 0;
@@ -391,20 +429,20 @@
     border-color: var(--on-ochre);
   }
   .overlap {
-    margin: var(--space-3) 0 0;
-    font-size: 14px;
-    line-height: 1.5;
+    margin: var(--space-2) 0 0;
+    font-size: 13px;
+    line-height: 1.45;
   }
 
   .rooms {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
-    gap: var(--space-5);
-    margin-bottom: var(--space-5);
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
     align-items: start;
   }
   .room {
-    padding: var(--space-5);
+    padding: var(--space-4);
     min-width: 0;
   }
   .room header {
@@ -416,94 +454,136 @@
   .room h2,
   .recent h2 {
     font-family: var(--font-display);
-    font-size: 20px;
+    font-size: 16px;
     line-height: 1.1;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     margin: 0;
   }
+  /* Temperature left, the target stepper right, on one line. */
   .now {
     display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
-    margin: var(--space-4) 0 var(--space-3);
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+    margin: var(--space-2) 0;
   }
   .temp {
     font-family: var(--font-mono);
-    font-size: 44px;
+    font-size: 34px;
     line-height: 1;
     font-weight: 400;
   }
-  .target {
-    list-style: none;
-    margin: 0;
-    padding: var(--space-2) 0;
-    border-top: 1px solid var(--line);
+  .stepper,
+  .plan-only {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .lbl {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .stepper .btn {
+    min-width: 36px;
+    min-height: 36px;
+    padding: 0;
+    font-size: 18px;
+  }
+  .sp {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 7ch;
+    line-height: 1.2;
+  }
+  .sp .value {
+    font-size: 16px;
+  }
+  .sp .pending {
+    text-decoration: underline dotted;
   }
   .aside {
     margin: 0 0 var(--space-2);
     font-family: var(--font-prose);
     font-style: italic;
-    font-size: 14px;
-    line-height: 1.5;
+    font-size: 13px;
+    line-height: 1.4;
     color: var(--ink-muted);
   }
+  /* The room's temperature per mode: one row of small chips, the modes that count now with a filled hole. */
   .modes {
     list-style: none;
-    margin: var(--space-2) 0 0;
-    padding: var(--space-3) 0 0;
+    margin: 0;
+    padding: var(--space-2) 0 0;
     border-top: 1px solid var(--line);
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
-    gap: var(--space-2);
+    display: flex;
+    gap: var(--space-1);
   }
   .modes li {
-    display: grid;
-    grid-template-columns: auto 1fr;
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
     align-items: center;
-    column-gap: var(--space-2);
-    padding: var(--space-2) var(--space-3);
+    justify-content: center;
+    gap: 5px;
+    padding: 4px 6px;
     border: 1px solid var(--line);
-    border-radius: var(--radius-s);
+    border-radius: var(--radius-pill);
+    font-size: 13px;
+    white-space: nowrap;
   }
   .modes li.inuse {
     border: 2px solid var(--surface-forest);
-    padding: calc(var(--space-2) - 1px) calc(var(--space-3) - 1px);
+    padding: 3px 5px;
   }
   .modes .mname {
-    font-size: 13px;
     color: var(--ink-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .modes .hole {
     color: var(--surface-forest);
   }
   .modes .value {
-    grid-column: 1 / -1;
-    font-size: 15px;
+    font-size: 13px;
   }
   .heaters {
     list-style: none;
-    margin: var(--space-3) 0 0;
-    padding: var(--space-3) 0 0;
-    border-top: 1px solid var(--line);
+    margin: var(--space-2) 0 0;
+    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
-    font-size: 14px;
+    gap: 2px;
+    font-size: 13px;
+    line-height: 1.4;
   }
   .heaters li {
     display: flex;
     justify-content: space-between;
     gap: var(--space-3);
-    flex-wrap: wrap;
+  }
+  .heaters .hname {
+    color: var(--ink-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .heaters .value {
+    font-size: 13px;
+    white-space: nowrap;
   }
 
   .panel {
     background: var(--paper-raised);
     border: 1px solid var(--line);
     border-radius: var(--radius-panel);
-    padding: var(--space-5);
+    padding: var(--space-4);
     min-width: 0;
   }
   .recent-head {
@@ -511,13 +591,13 @@
     align-items: baseline;
     justify-content: space-between;
     gap: var(--space-3);
-    margin-bottom: var(--space-4);
+    margin-bottom: var(--space-3);
   }
   .totals {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-6);
-    margin-bottom: var(--space-5);
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), max-content));
+    gap: var(--space-3) var(--space-6);
+    margin-bottom: var(--space-4);
   }
   .total {
     display: flex;
@@ -527,40 +607,41 @@
   }
   .total .label {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: 11px;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--ink-faint);
   }
   .total .big {
     font-family: var(--font-mono);
-    font-size: 36px;
+    font-size: 28px;
     font-weight: 400;
     line-height: 1.1;
   }
   .total .sub {
-    font-size: 13px;
+    font-size: 12px;
+    line-height: 1.4;
     color: var(--ink-muted);
   }
   .charts {
     display: flex;
     flex-direction: column;
-    gap: var(--space-6);
-    margin-top: var(--space-6);
+    gap: var(--space-5);
+    margin-top: var(--space-5);
   }
   .note {
-    margin: var(--space-5) 0 0;
-    font-size: 13px;
+    margin: var(--space-4) 0 0;
+    font-size: 12px;
     color: var(--ink-faint);
   }
   .state {
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    padding: var(--space-5);
+    padding: var(--space-4);
     border: 1px solid var(--line);
     border-radius: var(--radius-card);
-    font-size: 15px;
+    font-size: 14px;
     color: var(--ink-muted);
   }
   .spinner {
@@ -572,7 +653,7 @@
     flex-shrink: 0;
   }
   .small {
-    font-size: 13px;
+    font-size: 12px;
     line-height: 1.5;
   }
   .sr {
@@ -582,13 +663,45 @@
     overflow: hidden;
     clip: rect(0 0 0 0);
   }
+  /* Phones: the hero and the panels run to the screen edge minus a small gutter, everything one size down. */
   @media (max-width: 640px) {
+    .hero,
+    .room,
+    .panel {
+      margin-left: calc(-1 * var(--space-2));
+      margin-right: calc(-1 * var(--space-2));
+    }
     .hero {
-      padding: var(--space-5) var(--space-4) var(--space-4);
+      padding: var(--space-4);
+      border-radius: var(--radius-card);
+    }
+    .room {
+      padding: var(--space-3) var(--space-4);
+    }
+    .panel {
+      padding: var(--space-4) var(--space-3);
+      border-radius: var(--radius-card);
+    }
+    .tag {
+      display: none;
     }
     .choice {
-      flex: 1 1 40%;
-      justify-content: center;
+      font-size: 14px;
+      gap: 5px;
+      padding: 6px 4px;
+    }
+    .temp {
+      font-size: 28px;
+    }
+    .stepper {
+      gap: var(--space-1);
+    }
+    .modes li {
+      font-size: 12px;
+      gap: 4px;
+    }
+    .total .big {
+      font-size: 24px;
     }
   }
 </style>
