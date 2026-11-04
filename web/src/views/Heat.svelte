@@ -196,7 +196,7 @@
       {:else if heat.mode === null}
         Inga värmelägen i tabellerna än (heat_mode i Celler).
       {:else if heat.mode === MANUAL}
-        Måltemperaturerna är ändrade för hand. Välj ett läge eller Schema för att gå tillbaka.
+        Ändrat för hand, här eller på en termostat. Gäller till nästa byte i schemat, eller tills du väljer något annat.
       {:else if byHand}
         Valt för hand. Gäller tills du väljer Schema.
       {:else}
@@ -206,7 +206,7 @@
   </div>
   {#if heat.mode !== null}
     <div class="choices" role="radiogroup" aria-label="Välj värmeläge">
-      {#each [{ id: AUTO, name: 'Schema', inUse: false }, ...modes] as m (m.id)}
+      {#each [{ id: AUTO, name: 'Schema', inUse: false }, ...modes, { id: MANUAL, name: MANUAL_NAME, inUse: false }] as m (m.id)}
         {@const chosen = heat.mode === m.id}
         <button
           class="choice"
@@ -216,7 +216,7 @@
           disabled={choosing !== null}
           onclick={() => choose(m.id)}
         >
-          <span class="hole" class:filled={m.id === AUTO ? heat.mode === AUTO : m.inUse} aria-hidden="true"></span>
+          <span class="hole" class:filled={m.id === AUTO || m.id === MANUAL ? heat.mode === m.id : m.inUse} aria-hidden="true"></span>
           <span class="cname">{m.name}</span>
           {#if chosen}<span class="tag">vald</span>{/if}
         </button>
@@ -346,7 +346,7 @@
     grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
     gap: var(--space-1);
     margin-top: var(--space-4);
-    max-width: 560px;
+    max-width: 680px;
   }
   .choice {
     display: inline-flex;
@@ -632,6 +632,10 @@
     }
     .tag {
       display: none;
+    }
+    /* five choices: Schema, the modes and Manuellt in two rows of three */
+    .choices {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
     .choice {
       font-size: 14px;

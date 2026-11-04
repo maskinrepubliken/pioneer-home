@@ -13,8 +13,9 @@ humidifier_on_below	50			bedroom	air	Luftfuktaren på under	% relative humidity
 humidifier_off_above	60			bedroom	air	Luftfuktaren av över	% relative humidity
 # --- heating modes (the Värme page). Hemma, Sova and Borta give each room a planned temperature (<room>_plan), which a rule copies
 # into the room's target when it changes; the target can still be changed by hand or on a thermostat until the plan changes again.
-# heat_mode = auto follows the schedule; a mode chosen by hand holds until Schema (auto) is chosen again; manual (a target changed in the UI)
-# leaves the targets alone (the plans still follow the schedule) until a mode or Schema is chosen, which applies the plans at once. Around each switch of the
+# heat_mode = auto follows the schedule; a mode chosen by hand holds until Schema (auto) is chosen again; manual (chosen on the page, a target
+# changed in the UI or a setpoint changed on a thermostat) leaves the targets alone (the plans still follow the schedule) until the schedule's
+# next switch, or until a mode or Schema is chosen; either applies the plans at once. Around each switch of the
 # schedule the modes on both sides count for heat_overlap, and the warmer wins: a room that gets warmer starts early, one that gets colder waits.
 heat_cold	12				heating	Kallt	ingen skada på huset, rören, textilierna eller maten, men ingen är där
 heat_overlap	1h				heating	Överlapp	ett rum som ska bli varmare börjar så här tidigt, ett rum som ska bli kallare väntar så här länge
@@ -32,7 +33,7 @@ bedroom_home	heat_cold			bedroom	heating	Hemma	rummets temperatur i läget Hemma
 bedroom_sleep	17			bedroom	heating	Sova	rummets temperatur i läget Sova
 bedroom_away	heat_cold			bedroom	heating	Borta	rummets temperatur i läget Borta
 # --- held values
-heat_mode		auto	string		heating	Värmeläge	auto = schemat; home, sleep eller away = det läget tills Schema väljs igen; manual = måltemperaturerna är ändrade för hand och lämnas i fred tills ett läge eller Schema väljs
+heat_mode		auto	string		heating	Värmeläge	auto = schemat; home, sleep eller away = det läget tills Schema väljs igen; manual = måltemperaturerna är ändrade för hand (på sidan eller på en termostat) och lämnas i fred till nästa byte i schemat, eller tills ett läge eller Schema väljs
 living_room_target		21	number	living_room	heating	Måltemperatur	rummets måltemperatur; värmekällorna i rummet följer den
 study_target		18	number	study	heating	Måltemperatur	rummets måltemperatur; värmekällorna i rummet följer den
 fan_auto		TRUE	boolean	bedroom	air	Styr fläkten automatiskt	automatic fan and humidifier control in bedroom
