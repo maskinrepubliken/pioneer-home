@@ -30,7 +30,19 @@ export interface ReadingSource {
   value: number | boolean;
   /** Unreachable (`.available` FALSE): listed, but left out of the room value. */
   offline: boolean;
+  /** Named in the setting reading_exclude (a sensor known to read wrong): listed, but left out of the room value. */
+  excluded: boolean;
   changedAt: number | null;
+}
+
+/**
+ * Readings left out of room values: the setting `reading_exclude`, cell ids (`device.prop`) separated by commas or
+ * spaces, e.g. `motion1.temperature`. The device's other readings still count, and its history is still written.
+ */
+export function excludedReadings(cells: Record<string, Cell | undefined> | Cell[]): Set<string> {
+  const c = Array.isArray(cells) ? cells.find((x) => x.id === 'reading_exclude') : cells['reading_exclude'];
+  const v = c?.value;
+  return new Set(typeof v === 'string' ? v.split(/[\s,]+/).filter(Boolean) : []);
 }
 
 /**
@@ -77,21 +89,28 @@ export function isDetailsOnly(d: LiveDevice): boolean {
 /** Room readings in display order. */
 export const READING_PROPS: RoomReading['prop'][] = ['temperature', 'humidity', 'illuminance', 'occupancy', 'open'];
 
-export function roomReadings(devices: LiveDevice[]): RoomReading[] {
+export function roomReadings(devices: LiveDevice[], excluded: Set<string> = new Set()): RoomReading[] {
   const out: RoomReading[] = [];
   for (const prop of READING_PROPS) {
     const sources: ReadingSource[] = [];
     for (const d of devices) {
       const c = d.props[prop];
       if (!c || (typeof c.value !== 'number' && typeof c.value !== 'boolean')) continue;
-      sources.push({ device: d.id, name: d.name, value: c.value, offline: d.props['available']?.value === false, changedAt: c.changedAt ?? null });
+      sources.push({
+        device: d.id,
+        name: d.name,
+        value: c.value,
+        offline: d.props['available']?.value === false,
+        excluded: excluded.has(`${d.id}.${prop}`),
+        changedAt: c.changedAt ?? null,
+      });
     }
     if (!sources.length) continue;
-    const live = sources.filter((s) => !s.offline);
+    const live = sources.filter((s) => !s.offline && !s.excluded);
     let value: number | boolean | null = null;
     if (live.length && typeof live[0]!.value === 'boolean') value = live.some((s) => s.value === true);
     else if (live.length) value = live.reduce((n, s) => n + (s.value as number), 0) / live.length;
-    sources.sort((a, b) => Number(a.offline) - Number(b.offline) || a.name.localeCompare(b.name, 'sv'));
+    sources.sort((a, b) => Number(a.offline || a.excluded) - Number(b.offline || b.excluded) || a.name.localeCompare(b.name, 'sv'));
     out.push({ prop, value, sources });
   }
   return out;
@@ -152,6 +171,7 @@ interface RoomAcc {
 }
 
 export function buildLive(cells: Cell[], kinds: Record<string, string>, names: Record<string, string>): LiveLayout {
+  const excluded = excludedReadings(cells);
   const rooms = new Map<string, RoomAcc>();
   const acc = (room: string): RoomAcc => {
     let r = rooms.get(room);
@@ -222,7 +242,7 @@ export function buildLive(cells: Cell[], kinds: Record<string, string>, names: R
       columns: GROUP_ORDER.filter((g) => columns.has(g)).map((g) => columns.get(g)!),
       computed: GROUP_ORDER.filter((g) => computed.has(g)).map((g) => ({ group: g, cells: computed.get(g)! })),
       hidden,
-      readings: roomReadings(all),
+      readings: roomReadings(all, excluded),
     });
   }
   // Rooms in rooms.tsv order (unknown rooms after, by name); the house panel (no room) last.

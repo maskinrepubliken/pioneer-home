@@ -13,7 +13,7 @@
   import { formatQuantity, roomName, timeOnly } from '../lib/format';
   import { AUTO, MANUAL, MANUAL_NAME, MANUAL_UNTIL_SWITCH, cellNotes, heatModes, heatRooms, heatState, targetActions } from '../lib/heat';
   import { meanSeries, namesFromTables, roomOfLocation, seriesBy, sourceId, sourceName, ts, num, type Rec, type Series } from '../lib/history';
-  import { buildLive } from '../lib/live';
+  import { buildLive, excludedReadings } from '../lib/live';
   import { home, sendAction } from '../lib/state.svelte';
 
   // ---- now ------------------------------------------------------------------------------------------------------
@@ -118,13 +118,19 @@
   const heatedRooms = $derived(new Set(heated.map((r) => r.id)));
   const roomOfHeater = (r: Rec) => names.deviceRoom[sourceId(names, String(r['sensor'] ?? ''))] ?? null;
   const roomTitle = (id: string) => roomName(id, home.rooms);
+  const excluded = $derived(excludedReadings(home.cells));
 
   /** Per heated room: the mean of its climate sensors, else of its thermostats' own readings; plus its target. */
   const temperatures = $derived.by((): Series[] => {
     const lines: Series[] = [];
     const targets: Series[] = [];
     for (const r of heated) {
-      const c = climate.filter((x: Rec) => typeof x['location'] === 'string' && roomOfLocation(names, x['location'], String(x['sensor'] ?? '')) === r.id);
+      const c = climate.filter(
+        (x: Rec) =>
+          typeof x['location'] === 'string' &&
+          roomOfLocation(names, x['location'], String(x['sensor'] ?? '')) === r.id &&
+          !excluded.has(`${sourceId(names, String(x['sensor'] ?? ''))}.temperature`),
+      );
       const h = heating.filter((x: Rec) => roomOfHeater(x) === r.id);
       const sources = c.length ? seriesBy(c, 'sensor', 'temperature', label) : seriesBy(h, 'sensor', 'current', label);
       const mean = meanSeries(sources, BUCKET, r.title);

@@ -44,9 +44,9 @@
       {#if r.sources.length > 1}
       <ul class="sources">
         {#each r.sources as s (s.device)}
-          <li class:offline={s.offline} title={s.device}>
+          <li class:offline={s.offline || s.excluded} title={s.excluded ? `${s.device}: räknas inte (reading_exclude)` : s.device}>
             <span class="src">{s.name}</span>
-            {#if s.offline}<span class="gone">nås inte</span>{:else}<span class="v">{source(r, s.value)}</span>{/if}
+            {#if s.offline}<span class="gone">nås inte</span>{:else if s.excluded}<span class="gone">räknas inte</span> <span class="v">{source(r, s.value)}</span>{:else}<span class="v">{source(r, s.value)}</span>{/if}
           </li>
         {/each}
       </ul>

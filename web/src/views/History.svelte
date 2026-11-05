@@ -11,6 +11,7 @@
   import { roomName, timeOnly } from '../lib/format';
   import { dutySeries, isPulsing, meanSeries, namesFromTables, roomOfLocation, seriesBy, sourceId, sourceName, ts, type Rec, type Series } from '../lib/history';
   import { home } from '../lib/state.svelte';
+  import { excludedReadings } from '../lib/live';
 
   type Range = '24h' | '7d' | '30d';
   const RANGES: { id: Range; label: string; ms: number; bucket: number }[] = [
@@ -72,6 +73,7 @@
   });
 
   const names = $derived(namesFromTables(home.tables?.files ?? {}));
+  const excluded = $derived(excludedReadings(home.cells));
   const label = (key: string) => sourceName(names, key);
 
   /** Rows of a collection grouped by room id: climate by its `location`, heating by its thermostat's room. */
@@ -93,6 +95,7 @@
     id: string;
     title: string;
     temperature: Series[];
+    meanSources: Series[];
     humidity: Series[];
     light: Series[];
     demand: Series[];
@@ -112,6 +115,10 @@
           id,
           title: roomName(id, home.rooms),
           temperature: [...seriesBy(c, 'sensor', 'temperature', label), ...targets],
+          // the room's mean: its climate sensors except those in reading_exclude, else its thermostats' own readings
+          meanSources: ((kept) => (kept.length ? seriesBy(kept, 'sensor', 'temperature', label) : seriesBy(h, 'sensor', 'current', label)))(
+            c.filter((x) => !excluded.has(`${sourceId(names, String(x['sensor'] ?? ''))}.temperature`)),
+          ),
           humidity: seriesBy(c, 'sensor', 'humidity', label, { scale: 100, skipZero: true }),
           light: seriesBy(c, 'sensor', 'illuminance', label, { dropAllZero: true }),
           // an on/off heater that pulses is drawn as its share of time heating per bucket, like a thermostat's demand
@@ -127,7 +134,7 @@
   /** Every room's temperature as one line: the mean of its sources (not the targets), bucketed. */
   const overview = $derived([
     ...rooms
-      .map((r) => meanSeries(r.temperature.filter((s) => !s.dash), current.bucket, r.title))
+      .map((r) => meanSeries(r.meanSources, current.bucket, r.title))
       .filter((s): s is Series => s !== null),
     ...outdoor,
   ]);
