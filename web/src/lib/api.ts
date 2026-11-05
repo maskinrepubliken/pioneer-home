@@ -169,6 +169,62 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** GET /api/program (engine/src/adapters/program.ts): the program planner's models, curves and plans. */
+export interface RoomModel {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+  n: number;
+  r2: number;
+  stepS: number;
+  from: number;
+  to: number;
+}
+export interface PlannedStep {
+  /** epoch ms */
+  t: number;
+  tout: number;
+  sun: number;
+  price: number;
+  comfort: number;
+  floor: number;
+  ceiling: number;
+  power: number;
+  tin: number;
+  tend: number;
+  setpoint: number;
+  cost: number;
+}
+export interface Plan {
+  steps: PlannedStep[];
+  cost: number;
+  energy: number;
+  shortfall: number;
+}
+export interface ProgramRoom {
+  id: string;
+  name: string;
+  heaters: { id: string; kw: number }[];
+  model: RoomModel | null;
+  usable: boolean;
+  curve: { tout: number; kw: number }[];
+  observed: { tout: number; kw: number }[];
+  curveTemp: number;
+  plan: Plan | null;
+  schedule: Plan | null;
+  setpoint: number | null;
+  note: string | null;
+}
+export interface ProgramState {
+  at: number;
+  fittedAt: number | null;
+  forecast: { created: number; fetched: number } | null;
+  pricesUntil: number | null;
+  rooms: ProgramRoom[];
+  errors: string[];
+}
+
 export const api = {
   health: () => request<Health>('/api/health'),
   state: () => request<StateSnapshot>('/api/state'),
@@ -178,6 +234,7 @@ export const api = {
   event: (event: string) => request<{ ok: boolean; traces: Trace[] }>('/api/event', { method: 'POST', body: JSON.stringify({ event }) }),
   prices: (since: Date, until: Date) =>
     request<{ since: number; until: number; slots: PriceSlot[] }>(`/api/prices?since=${encodeURIComponent(since.toISOString())}&until=${encodeURIComponent(until.toISOString())}`),
+  program: () => request<ProgramState>('/api/program'),
   history: (collection: string, since: Date, until: Date) =>
     request<HistoryResponse>(`/api/history/${encodeURIComponent(collection)}?since=${encodeURIComponent(since.toISOString())}&until=${encodeURIComponent(until.toISOString())}`),
 };

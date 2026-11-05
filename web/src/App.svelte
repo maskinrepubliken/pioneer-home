@@ -3,6 +3,7 @@
   import Header from './components/Header.svelte';
   import Footer from './components/Footer.svelte';
   import Heat from './views/Heat.svelte';
+  import Program from './views/Program.svelte';
   import Live from './views/Live.svelte';
   import Tables from './views/Tables.svelte';
   import Trace from './views/Trace.svelte';
@@ -49,6 +50,8 @@
 <main class="page">
   {#if route.view === 'heat'}
     <Heat />
+  {:else if route.view === 'program'}
+    <Program />
   {:else if route.view === 'live'}
     <Live />
   {:else if route.view === 'tables'}

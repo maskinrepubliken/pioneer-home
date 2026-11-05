@@ -3,6 +3,7 @@
 # starts an hour early, a room that gets colder waits an hour, and during that hour a degree short is enough (heat_overlap_slack).
 # A mode chosen by hand holds until auto; manual (chosen on the page or a target changed in the UI) leaves the targets alone until a mode or auto
 # is chosen; a setpoint changed on a thermostat does so only until the schedule's next switch.
+# In heat_mode program the target follows the planner's program.<room> (the schedule's while it has none).
 step	at	do	expect	note
 1	2026-11-02T12:00		heat_active = "home"; living_room_plan = 18; study_plan = 18; bedroom_plan = 12; not fired living_room_plan_follow; not fired study_plan_follow	Monday noon: Hemma
 2	2026-11-02T17:59		NOT(heat_use_sleep); bedroom_plan = 12	
@@ -37,3 +38,9 @@ step	at	do	expect	note
 31		mqtt zigbee2mqtt/FLOOR2 {"occupied_heating_setpoint":20}	fired floor2_sets_target; heat_mode = "manual_until_switch"; heat_active = "manual"; living_room_target = 20	on the schedule, turned on the thermostat: Manuellt until the next switch
 32	2026-11-06T18:30		living_room_target = 20; heat_mode = "manual_until_switch"; not fired heat_manual_ends	the overlap before Sova does not count as a switch
 33	2026-11-06T19:00:01		fired heat_manual_ends; heat_mode = "auto"; living_room_target = 17; sent floor2 occupied_heating_setpoint=17	Sova starts: the schedule applies again (a degree short for the overlap hour)
+34		set heat_mode "program"	heat_active = "program"; heat_resume = "program"; living_room_plan = living_room_scheduled	Program: without a plan from the planner yet, the schedule's temperature
+35		set program.living_room 16.5	living_room_plan = 16.5; living_room_target = 16.5; sent floor2 occupied_heating_setpoint=16.5	the planner's setpoint becomes the target
+36		set program.living_room 18	living_room_target = 18; sent floor2 occupied_heating_setpoint=18	
+37		mqtt zigbee2mqtt/FLOOR2 {"occupied_heating_setpoint":20}	fired floor2_sets_target; heat_mode = "manual_until_switch"; living_room_target = 20	turned on a thermostat while the program runs: Manuellt until the next switch
+38	2026-11-07T06:00:01		fired heat_manual_ends; heat_mode = "program"; living_room_target = 18; sent floor2 occupied_heating_setpoint=18	back to the program (heat_resume), not the schedule
+39		set heat_mode "auto"	heat_resume = "auto"; living_room_plan = living_room_scheduled; living_room_target = living_room_scheduled	Schema again

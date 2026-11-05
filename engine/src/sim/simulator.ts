@@ -63,8 +63,14 @@ export class Simulator {
     this.engine.dispatchEvent(name);
   }
 
-  mqtt(topic: string, payload: string): void {
-    this.transport.inject(topic, payload);
+  /**
+   * A message from a device; `retained` replays it as the broker does on subscribe (old state, not a live report).
+   * A live report moves the clock on by a millisecond first, as real reports never share one: it stamps
+   * `<device>.last_seen`, and a rule can tell a live report by `CHANGED(<device>.last_seen)`.
+   */
+  mqtt(topic: string, payload: string, retained = false): void {
+    if (!retained) this.clock.advanceTo(this.clock.now() + 1);
+    this.transport.inject(topic, payload, retained);
   }
 
   action(text: string): void {

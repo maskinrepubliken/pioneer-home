@@ -626,6 +626,38 @@ export class Engine {
     };
   }
 
+  /**
+   * A cell's value at another moment: derived cells are recomputed with the clock at `atMs` and the given held
+   * values in place of the store's (e.g. `{ heat_mode: 'auto' }`), everything else is read as it is now. For looking
+   * ahead (the program planner reads a room's comfort temperature hours from now). SINCE, HOLD and SHARE still read
+   * the store's history, so they answer for now, not for `atMs`. Errors give NULL.
+   */
+  evaluateAt(id: string, atMs: number, overrides: Record<string, Value> = {}): Value {
+    const memo = new Map<string, Value>();
+    const base = this.evalContext();
+    const ctx: EvalContext = {
+      ...base,
+      now: () => atMs,
+      get: (ref) => {
+        const rid = this.store.resolve(ref);
+        if (rid in overrides) return overrides[rid] ?? null;
+        if (memo.has(rid)) return memo.get(rid)!;
+        const def = this.config.derived.get(rid);
+        if (!def) return this.store.get(rid);
+        memo.set(rid, null); // a cycle (the loader forbids them) would read NULL instead of recursing
+        let v: Value = null;
+        try {
+          v = formula.evaluate(def.formula, ctx);
+        } catch {
+          v = null;
+        }
+        memo.set(rid, v);
+        return v;
+      },
+    };
+    return ctx.get(id);
+  }
+
   private safeEval(ast: Ast, trace: Trace, what: string): Value {
     try {
       return formula.evaluate(ast, this.evalContext());

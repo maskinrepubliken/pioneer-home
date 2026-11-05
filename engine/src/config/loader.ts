@@ -162,6 +162,8 @@ export function loadConfig(dir: string): LoadResult {
       rooms.set(id, { id, name: row.cells['name'] || id, note: row.cells['note'] ?? '', file: tb.file, line: row.line });
     }
   }
+  // The program planner's setpoint for each room (adapters/program.ts): NULL until it has a plan for the room.
+  for (const id of rooms.keys()) cells.set(`program.${id}`, { id: `program.${id}`, type: 'number', kind: 'system', settable: false, transient: false });
 
   // ---- devices ---------------------------------------------------------------------------
   const devices = new Map<string, DeviceDef>();

@@ -22,6 +22,9 @@ export const MANUAL = 'manual';
 /** Manuellt from a setpoint changed on a thermostat: the schedule takes over again at its next switch. */
 export const MANUAL_UNTIL_SWITCH = 'manual_until_switch';
 export const MANUAL_NAME = 'Manuellt';
+/** The program planner sets the room targets (heat_mode program, the Program page). */
+export const PROGRAM = 'program';
+export const PROGRAM_NAME = 'Program';
 
 export interface HeatMode {
   id: string;

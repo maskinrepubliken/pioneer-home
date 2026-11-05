@@ -9,3 +9,4 @@ step	at	do	expect	note
 6		mqtt zigbee2mqtt/HEATER1 {"occupied_heating_setpoint":19}	study_target = 19; sent floor1 occupied_heating_setpoint=19; fired heater1_sets_target	and the other way round
 7		mqtt zigbee2mqtt/FLOOR1 {"occupied_heating_setpoint":19}	nothing sent; not fired floor1_sets_target	the echo of our own command changes nothing
 8		mqtt zigbee2mqtt/FLOOR2 {"occupied_heating_setpoint":23}	living_room_target = 23; fired floor2_sets_target	
+9		mqtt retained zigbee2mqtt/FLOOR1 {"occupied_heating_setpoint":25}	not fired floor1_sets_target; study_target <> 25	the broker replaying an old retained message (as when the engine connects) is not a change on the thermostat

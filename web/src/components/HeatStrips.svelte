@@ -21,6 +21,7 @@
     price,
     sources,
     order = [],
+    ahead = false,
   }: {
     /** start of each hour, epoch seconds */
     hours: number[];
@@ -32,6 +33,8 @@
     sources: Source[];
     /** every appliance's label in fill order (lib/cost.ts applianceOrder); labels not in it come after, by name */
     order?: string[];
+    /** the hours are a plan, not history: without a pick the readout shows the first hour */
+    ahead?: boolean;
   } = $props();
 
   const ordered = $derived([...sources].sort((a, b) => a.label.localeCompare(b.label, 'sv')));
@@ -50,7 +53,7 @@
 
   let active = $state<number | null>(null);
   /** Without a pick: the last whole hour (the current one has only just begun). */
-  const shown = $derived(active ?? (n > 1 ? n - 2 : n ? 0 : null));
+  const shown = $derived(active ?? (ahead ? (n ? 0 : null) : n > 1 ? n - 2 : n ? 0 : null));
 
   const sum = (arr: number[][], i: number) => arr.reduce((t, a) => t + (a[i] ?? 0), 0);
   const kwTotal = $derived(hours.map((_, i) => sum(ordered.map((s) => s.kw), i)));
@@ -152,7 +155,7 @@
 <figure class="strips" bind:clientWidth={width}>
   <figcaption class="readout" aria-live="polite">
     {#if shown !== null}
-      <span class="when">{dayHour(hours[shown]!)}{active === null ? ' · senaste hela timmen' : ''}</span>
+      <span class="when">{dayHour(hours[shown]!)}{active === null ? (ahead ? ' · första timmen' : ' · senaste hela timmen') : ''}</span>
       <span class="vals">
         <span><b class="value">{outdoor[shown] === null ? '—' : `${num1(outdoor[shown]!)} °C`}</b> ute</span>
         {#if hasSun}<span><b class="value">{lux(sun[shown])}</b> sol</span>{/if}

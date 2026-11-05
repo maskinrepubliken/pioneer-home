@@ -24,6 +24,8 @@ import { reloadTables, watchTables } from './adapters/watcher.js';
 import { MemorySink, PocketBaseSink } from './adapters/pocketbase.js';
 import { startWeather } from './adapters/weather.js';
 import { PriceService } from './adapters/prices.js';
+import { ForecastService } from './adapters/forecast.js';
+import { ProgramService } from './adapters/program.js';
 import { DryRunReport } from './adapters/dryrun.js';
 import { HistoryTracker } from './core/history.js';
 import { formatConfigError } from './config/errors.js';
@@ -128,7 +130,14 @@ async function main(): Promise<void> {
   const stopPrices = prices ? prices.start(engine) : () => undefined;
   if (!prices) log.info('price_area not set, electricity.price stays NULL');
 
-  const httpOpts: import('./adapters/http.js').HttpOptions = { port, host, webDir: existsSync(webDir) ? webDir : null, tablesDir, dryRun, traceBuffer: 300, history: sink };
+  // The program planner (adapters/program.ts): thermal models from history, SMHI's forecast and the spot prices.
+  const forecast = new ForecastService(config.latitude, config.longitude, resolve(stateDir, 'forecast.json'), log);
+  const programOpts: ConstructorParameters<typeof ProgramService>[1] = { history: sink, forecast, stateFile: resolve(stateDir, 'program.json') };
+  if (prices) programOpts.prices = prices;
+  const program = new ProgramService(engine, programOpts, log);
+  const stopProgram = program.start();
+
+  const httpOpts: import('./adapters/http.js').HttpOptions = { port, host, webDir: existsSync(webDir) ? webDir : null, tablesDir, dryRun, traceBuffer: 300, history: sink, program };
   if (prices) httpOpts.prices = prices;
   if (dryRunReport) httpOpts.dryRunReport = dryRunReport;
   httpOpts.onTableSaved = () => reloadTables(tablesDir, engine, log, (error) => http.configChanged(error));
@@ -143,6 +152,7 @@ async function main(): Promise<void> {
     stopSnapshots();
     stopWeather();
     stopPrices();
+    stopProgram();
     engine.dispose();
     history.dispose();
     await stopWatching();

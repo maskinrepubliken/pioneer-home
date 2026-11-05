@@ -8,6 +8,7 @@
  *   GET  /api/trace           last N traces
  *   POST /api/action          { action: "set living_room.lamp on" }
  *   POST /api/event           { event: "sleep" }
+ *   GET  /api/program         the program planner: room models, heating curves, the plan and the schedule's cost
  *   GET  /                    web/dist (if present)
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -23,6 +24,7 @@ import type { DryRunReport } from './dryrun.js';
 import { isEditableTable, saveTable, validateTable } from './tables-edit.js';
 import { formatConfigError } from '../config/errors.js';
 import type { PriceService } from './prices.js';
+import type { ProgramService } from './program.js';
 
 export interface HttpOptions {
   port: number;
@@ -33,6 +35,7 @@ export interface HttpOptions {
   traceBuffer: number;
   history?: HistoryQuery;
   prices?: PriceService;
+  program?: ProgramService;
   dryRunReport?: DryRunReport;
   /** called after a table was saved through the API; should reload the engine and return the error text or null */
   onTableSaved?: (file: string) => string | null;
@@ -143,6 +146,11 @@ export class HttpServer {
       return { since, until, slots: await this.opts.prices.query(since, until) };
     });
 
+    app.get('/api/program', async (_req, reply) => {
+      if (!this.opts.program) return reply.code(404).send({ error: 'program planner not running' });
+      return this.opts.program.current;
+    });
+
     app.put<{ Params: { file: string }; Body: { text?: string; validateOnly?: boolean; message?: string } }>('/api/tables/:file', async (req, reply) => {
       const file = req.params.file;
       if (!isEditableTable(file)) return reply.code(404).send({ error: `unknown table ${file}` });
@@ -213,7 +221,7 @@ export class HttpServer {
         return reply.sendFile('index.html');
       });
     } else {
-      app.get('/', async () => ({ name: 'pioneer-home engine', api: ['/api/health', '/api/state', '/api/events', '/api/tables', '/api/trace', '/api/history/:collection', '/api/prices', '/api/dryrun', 'PUT /api/tables/:file', 'POST /api/action', 'POST /api/event'] }));
+      app.get('/', async () => ({ name: 'pioneer-home engine', api: ['/api/health', '/api/state', '/api/events', '/api/tables', '/api/trace', '/api/history/:collection', '/api/prices', '/api/program', '/api/dryrun', 'PUT /api/tables/:file', 'POST /api/action', 'POST /api/event'] }));
     }
   }
 

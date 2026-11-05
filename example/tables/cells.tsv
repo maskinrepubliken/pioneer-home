@@ -11,7 +11,8 @@ fan_max_temp	20			bedroom	air	Fläkten på fullt från	fan is at 100% from here
 workshop_min_temp	5			workshop	air	Fara under	farobanner när verkstaden blir kallare
 humidifier_on_below	50			bedroom	air	Luftfuktaren på under	% relative humidity
 humidifier_off_above	60			bedroom	air	Luftfuktaren av över	% relative humidity
-# --- heating modes (the Värme page). Hemma, Sova and Borta give each room a planned temperature (<room>_plan), which a rule copies
+# --- heating modes (the Värme page). Hemma, Sova and Borta give each room a planned temperature (<room>_scheduled; <room>_plan is it,
+# or in heat_mode program the program planner's program.<room>, see the Program page), which a rule copies
 # into the room's target when it changes; the target can still be changed by hand or on a thermostat until the plan changes again.
 # heat_mode = auto follows the schedule; a mode chosen by hand holds until Schema (auto) is chosen again. manual (chosen on the page or a target
 # changed in the UI) and manual_until_switch (a setpoint changed on a thermostat) leave the targets alone (the plans still follow the schedule):
@@ -21,6 +22,9 @@ humidifier_off_above	60			bedroom	air	Luftfuktaren av över	% relative humidity
 heat_cold	12				heating	Kallt	ingen skada på huset, rören, textilierna eller maten, men ingen är där
 heat_overlap	1h				heating	Överlapp	ett rum som ska bli varmare börjar så här tidigt, ett rum som ska bli kallare väntar så här länge
 heat_overlap_slack	1				heating	Övergången får sakna	grader under lägets temperatur som räcker under övergången (åt båda hållen)
+program_slack	1				heating	Programmet får sakna	°C under komforten som programmet får låta rummet ligga under dyra timmar
+program_preheat	1.5				heating	Programmet får förvärma	°C över den kommande komforten som programmet får värma i förväg när elen är billig
+program_shortfall_cost	0.5				heating	Kostnad för att sakna värme	kr per grad och timme under komforten: högre = programmet håller komforten oftare, lägre = sparar mer
 heat_sleep_from	19:00				heating	Sova från	alla dagar
 heat_sleep_to	06:00				heating	Sova till	
 heat_away_from	09:00				heating	Borta från	onsdag och torsdag (veckodagarna står i heat_sched_*)
@@ -36,6 +40,7 @@ bedroom_sleep	17			bedroom	heating	Sova	rummets temperatur i läget Sova
 bedroom_away	heat_cold			bedroom	heating	Borta	rummets temperatur i läget Borta
 # --- held values
 heat_mode		auto	string		heating	Värmeläge	auto = schemat; home, sleep eller away = det läget tills Schema väljs igen; manual = måltemperaturerna är ändrade på sidan och lämnas i fred tills ett läge eller Schema väljs; manual_until_switch = ändrade på en termostat, Schema igen vid schemats nästa byte
+heat_resume		auto	string		heating	Läge att gå tillbaka till	auto eller program: dit värmeläget går vid schemats byte efter en ändring på en termostat
 living_room_target		21	number	living_room	heating	Måltemperatur	rummets måltemperatur; värmekällorna i rummet följer den
 study_target		18	number	study	heating	Måltemperatur	rummets måltemperatur; värmekällorna i rummet följer den
 fan_auto		TRUE	boolean	bedroom	air	Styr fläkten automatiskt	automatic fan and humidifier control in bedroom
@@ -55,18 +60,21 @@ heat_sched_behind	IF(AND(OR(WEEKDAY() = 3, WEEKDAY() = 4), BETWEEN(TIME() - heat
 heat_sched_ahead	IF(AND(OR(WEEKDAY() = 3, WEEKDAY() = 4), BETWEEN(TIME() + heat_overlap, heat_away_from, heat_away_to)), "away", IF(BETWEEN(TIME() + heat_overlap, heat_sleep_from, heat_sleep_to), "sleep", "home"))				heating	Schemat om en överlapp	
 heat_manual	OR(heat_mode = "manual", heat_mode = "manual_until_switch")				heating	Manuellt	måltemperaturerna ändrade för hand: planen sätts inte i rummen
 heat_active	IF(heat_mode = "auto", heat_sched_now, IF(heat_manual, "manual", heat_mode))				heating	Värmeläge just nu	det valda läget, eller schemats läge just nu
-heat_use_home	IF(OR(heat_mode = "auto", heat_manual), OR(heat_sched_behind = "home", heat_sched_now = "home", heat_sched_ahead = "home"), heat_mode = "home")				heating	Hemma	läget Hemma räknas in i rummens plan just nu
-heat_use_sleep	IF(OR(heat_mode = "auto", heat_manual), OR(heat_sched_behind = "sleep", heat_sched_now = "sleep", heat_sched_ahead = "sleep"), heat_mode = "sleep")				heating	Sova	läget Sova räknas in i rummens plan just nu
-heat_use_away	IF(OR(heat_mode = "auto", heat_manual), OR(heat_sched_behind = "away", heat_sched_now = "away", heat_sched_ahead = "away"), heat_mode = "away")				heating	Borta	läget Borta räknas in i rummens plan just nu
-heat_now_home	IF(OR(heat_mode = "auto", heat_manual), heat_sched_now = "home", heat_mode = "home")				heating	Hemma just nu	läget Hemma gäller just nu (utan övergången)
-heat_now_sleep	IF(OR(heat_mode = "auto", heat_manual), heat_sched_now = "sleep", heat_mode = "sleep")				heating	Sova just nu	läget Sova gäller just nu (utan övergången)
-heat_now_away	IF(OR(heat_mode = "auto", heat_manual), heat_sched_now = "away", heat_mode = "away")				heating	Borta just nu	läget Borta gäller just nu (utan övergången)
+heat_use_home	IF(OR(heat_mode = "auto", heat_mode = "program", heat_manual), OR(heat_sched_behind = "home", heat_sched_now = "home", heat_sched_ahead = "home"), heat_mode = "home")				heating	Hemma	läget Hemma räknas in i rummens plan just nu
+heat_use_sleep	IF(OR(heat_mode = "auto", heat_mode = "program", heat_manual), OR(heat_sched_behind = "sleep", heat_sched_now = "sleep", heat_sched_ahead = "sleep"), heat_mode = "sleep")				heating	Sova	läget Sova räknas in i rummens plan just nu
+heat_use_away	IF(OR(heat_mode = "auto", heat_mode = "program", heat_manual), OR(heat_sched_behind = "away", heat_sched_now = "away", heat_sched_ahead = "away"), heat_mode = "away")				heating	Borta	läget Borta räknas in i rummens plan just nu
+heat_now_home	IF(OR(heat_mode = "auto", heat_mode = "program", heat_manual), heat_sched_now = "home", heat_mode = "home")				heating	Hemma just nu	läget Hemma gäller just nu (utan övergången)
+heat_now_sleep	IF(OR(heat_mode = "auto", heat_mode = "program", heat_manual), heat_sched_now = "sleep", heat_mode = "sleep")				heating	Sova just nu	läget Sova gäller just nu (utan övergången)
+heat_now_away	IF(OR(heat_mode = "auto", heat_mode = "program", heat_manual), heat_sched_now = "away", heat_mode = "away")				heating	Borta just nu	läget Borta gäller just nu (utan övergången)
 living_room_now	MAX(heat_cold, IF(heat_now_home, living_room_home, heat_cold), IF(heat_now_sleep, living_room_sleep, heat_cold), IF(heat_now_away, living_room_away, heat_cold))			living_room	heating	Lägets temperatur just nu	läget som gäller just nu, utan övergången
 living_room_overlap	MAX(heat_cold, IF(heat_use_home, living_room_home, heat_cold), IF(heat_use_sleep, living_room_sleep, heat_cold), IF(heat_use_away, living_room_away, heat_cold))			living_room	heating	Övergångens temperatur	det varmaste av lägena som räknas inom heat_overlap
-living_room_plan	MAX(living_room_now, living_room_overlap - heat_overlap_slack)			living_room	heating	Planerad temperatur	lägets temperatur; under övergången räcker det varmaste läget minus heat_overlap_slack
+living_room_scheduled	MAX(living_room_now, living_room_overlap - heat_overlap_slack)			living_room	heating	Schemats temperatur	lägets temperatur; under övergången räcker det varmaste läget minus heat_overlap_slack
+living_room_plan	IF(AND(heat_mode = "program", NOT(ISBLANK(program.living_room))), program.living_room, living_room_scheduled)			living_room	heating	Planerad temperatur	programmets temperatur i läget Program (när det har en plan för rummet), annars schemats
 study_now	MAX(heat_cold, IF(heat_now_home, study_home, heat_cold), IF(heat_now_sleep, study_sleep, heat_cold), IF(heat_now_away, study_away, heat_cold))			study	heating	Lägets temperatur just nu	läget som gäller just nu, utan övergången
 study_overlap	MAX(heat_cold, IF(heat_use_home, study_home, heat_cold), IF(heat_use_sleep, study_sleep, heat_cold), IF(heat_use_away, study_away, heat_cold))			study	heating	Övergångens temperatur	det varmaste av lägena som räknas inom heat_overlap
-study_plan	MAX(study_now, study_overlap - heat_overlap_slack)			study	heating	Planerad temperatur	lägets temperatur; under övergången räcker det varmaste läget minus heat_overlap_slack
+study_scheduled	MAX(study_now, study_overlap - heat_overlap_slack)			study	heating	Schemats temperatur	lägets temperatur; under övergången räcker det varmaste läget minus heat_overlap_slack
+study_plan	IF(AND(heat_mode = "program", NOT(ISBLANK(program.study))), program.study, study_scheduled)			study	heating	Planerad temperatur	programmets temperatur i läget Program (när det har en plan för rummet), annars schemats
 bedroom_now	MAX(heat_cold, IF(heat_now_home, bedroom_home, heat_cold), IF(heat_now_sleep, bedroom_sleep, heat_cold), IF(heat_now_away, bedroom_away, heat_cold))			bedroom	heating	Lägets temperatur just nu	läget som gäller just nu, utan övergången
 bedroom_overlap	MAX(heat_cold, IF(heat_use_home, bedroom_home, heat_cold), IF(heat_use_sleep, bedroom_sleep, heat_cold), IF(heat_use_away, bedroom_away, heat_cold))			bedroom	heating	Övergångens temperatur	det varmaste av lägena som räknas inom heat_overlap
-bedroom_plan	MAX(bedroom_now, bedroom_overlap - heat_overlap_slack)			bedroom	heating	Planerad temperatur	lägets temperatur; under övergången räcker det varmaste läget minus heat_overlap_slack
+bedroom_scheduled	MAX(bedroom_now, bedroom_overlap - heat_overlap_slack)			bedroom	heating	Schemats temperatur	lägets temperatur; under övergången räcker det varmaste läget minus heat_overlap_slack
+bedroom_plan	IF(AND(heat_mode = "program", NOT(ISBLANK(program.bedroom))), program.bedroom, bedroom_scheduled)			bedroom	heating	Planerad temperatur	programmets temperatur i läget Program (när det har en plan för rummet), annars schemats

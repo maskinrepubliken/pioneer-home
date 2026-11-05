@@ -1,6 +1,6 @@
-/** Hash routes: `#/heat` (Värme, the landing page), `#/live`, `#/tables`, `#/tables/<file>.tsv`, `#/trace`, `#/history` (Grafer), `#/costs`. */
-export type View = 'heat' | 'live' | 'tables' | 'trace' | 'history' | 'costs';
-export const VIEWS: View[] = ['heat', 'live', 'tables', 'trace', 'history', 'costs'];
+/** Hash routes: `#/heat` (Värme, the landing page), `#/program`, `#/live`, `#/tables`, `#/tables/<file>.tsv`, `#/trace`, `#/history` (Grafer), `#/costs`. */
+export type View = 'heat' | 'program' | 'live' | 'tables' | 'trace' | 'history' | 'costs';
+export const VIEWS: View[] = ['heat', 'program', 'live', 'tables', 'trace', 'history', 'costs'];
 
 export interface Route {
   view: View;

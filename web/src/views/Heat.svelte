@@ -11,7 +11,7 @@
   import { api, ApiError, type PriceSlot } from '../lib/api';
   import { applianceOrder, computeCosts, costPerBucket, isUnreachable, kr, kwhPerBucket, pricePerBucket, type CostResult } from '../lib/cost';
   import { formatQuantity, roomName, timeOnly } from '../lib/format';
-  import { AUTO, MANUAL, MANUAL_NAME, MANUAL_UNTIL_SWITCH, cellNotes, heatModes, heatRooms, heatState, targetActions } from '../lib/heat';
+  import { AUTO, MANUAL, MANUAL_NAME, MANUAL_UNTIL_SWITCH, PROGRAM, PROGRAM_NAME, cellNotes, heatModes, heatRooms, heatState, targetActions } from '../lib/heat';
   import { meanSeries, namesFromTables, roomOfLocation, seriesBy, sourceId, sourceName, ts, num, type Rec, type Series } from '../lib/history';
   import { buildLive, excludedReadings } from '../lib/live';
   import { home, sendAction } from '../lib/state.svelte';
@@ -25,9 +25,10 @@
   const rooms = $derived(heatRooms(layout, home.cells, home.rooms));
   const heated = $derived(rooms.filter((r) => r.heated));
   const notes = $derived(cellNotes(home.tables?.files ?? {}));
-  const modeName = (id: string | null) => (id === null ? '—' : id === MANUAL ? MANUAL_NAME : (modes.find((m) => m.id === id)?.name ?? id));
+  const modeName = (id: string | null) => (id === null ? '—' : id === MANUAL ? MANUAL_NAME : id === PROGRAM ? PROGRAM_NAME : (modes.find((m) => m.id === id)?.name ?? id));
   /** a mode chosen by hand (not the schedule); `manual` = targets changed by hand */
-  const byHand = $derived(heat.mode !== null && heat.mode !== AUTO);
+  const byHand = $derived(heat.mode !== null && heat.mode !== AUTO && heat.mode !== PROGRAM);
+  const resumesProgram = $derived(home.cells['heat_resume']?.value === PROGRAM);
 
   let choosing = $state<string | null>(null);
   async function choose(id: string) {
@@ -208,7 +209,9 @@
       {:else if heat.mode === MANUAL}
         Ändrat för hand. Gäller tills du väljer Schema eller ett läge.
       {:else if heat.mode === MANUAL_UNTIL_SWITCH}
-        Ändrat på en termostat. Schemat gäller igen vid nästa byte; tryck Manuellt för att behålla ändringen.
+        Ändrat på en termostat. {resumesProgram ? 'Programmet' : 'Schemat'} tar över igen vid nästa byte; tryck Manuellt för att behålla ändringen.
+      {:else if heat.mode === PROGRAM}
+        Programmet styr: värmer när elen är billig, inom schemats komfort. <a href="#/program">Se planen</a>.
       {:else if byHand}
         Valt för hand. Gäller tills du väljer Schema.
       {:else}

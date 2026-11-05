@@ -121,8 +121,11 @@ function runCommand(sim: Simulator, text: string): void {
       sim.event(tokens[1]);
       return;
     case 'mqtt': {
-      if (tokens.length < 3) throw new Error('mqtt <topic> <json>');
-      sim.mqtt(tokens[1]!, text.slice(text.indexOf(tokens[1]!) + tokens[1]!.length).trim());
+      // `mqtt retained <topic> <json>`: the broker replaying a retained message (as when the engine connects)
+      const retained = tokens[1] === 'retained';
+      const topic = tokens[retained ? 2 : 1];
+      if (!topic || tokens.length < (retained ? 4 : 3)) throw new Error('mqtt [retained] <topic> <json>');
+      sim.mqtt(topic, text.slice(text.indexOf(topic) + topic.length).trim(), retained);
       return;
     }
     case 'action':
