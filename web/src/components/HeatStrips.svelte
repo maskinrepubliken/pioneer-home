@@ -219,15 +219,15 @@
   <figcaption class="readout" aria-live="polite">
     {#if shown !== null}
       <span class="when">{dayHour(hours[shown]!)}{active === null ? (ahead ? ' · första timmen' : ' · senaste hela timmen') : ''}</span>
-      <span class="vals">
-        {#if hasModes}<span><b class="value">{modeIn(shown)}</b></span>{/if}
-        {#each hasTargets ? targets : [] as t (t.label)}<span><b class="value">{targetIn(t, shown)}</b> {t.label}</span>{/each}
-        <span><b class="value">{outdoor[shown] === null ? '—' : `${num1(outdoor[shown]!)} °C`}</b> ute</span>
-        {#if hasSun}<span><b class="value">{lux(sun[shown])}</b> sol</span>{/if}
-        <span><b class="value">{num2(kwTotal[shown] ?? 0)} kW</b> värme</span>
-        <span><b class="value">{price[shown] === null ? '—' : `${num2(price[shown]!)} kr/kWh`}</b></span>
-        <span><b class="value">{kr(sekTotal[shown] ?? 0)}</b> kostnad</span>
-      </span>
+      <dl class="vals">
+        {#if hasModes}<div><dt>Läge</dt><dd class="value">{modeIn(shown)}</dd></div>{/if}
+        {#each hasTargets ? targets : [] as t (t.label)}<div><dt>Mål {t.label}</dt><dd class="value">{targetIn(t, shown)}</dd></div>{/each}
+        <div><dt>Ute</dt><dd class="value">{outdoor[shown] === null ? '—' : `${num1(outdoor[shown]!)} °C`}</dd></div>
+        {#if hasSun}<div><dt>Sol</dt><dd class="value">{lux(sun[shown])}</dd></div>{/if}
+        <div><dt>Värme</dt><dd class="value">{num2(kwTotal[shown] ?? 0)} kW</dd></div>
+        <div><dt>Elpris</dt><dd class="value">{price[shown] === null ? '—' : `${num2(price[shown]!)} kr/kWh`}</dd></div>
+        <div><dt>Kostnad</dt><dd class="value">{kr(sekTotal[shown] ?? 0)}</dd></div>
+      </dl>
     {/if}
   </figcaption>
 
@@ -380,14 +380,30 @@
     color: var(--ink-faint);
     flex-basis: 100%;
   }
+  /* One cell per measure: its name above, the value under it, a rule on the left between cells. */
   .vals {
+    flex-basis: 100%;
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-1) var(--space-4);
+    gap: var(--space-2) 0;
+    margin: 0;
   }
-  .vals b {
+  .vals > div {
+    border-left: 1px solid var(--line-strong);
+    padding: 0 var(--space-3) 0 var(--space-2);
+  }
+  .vals dt {
+    font-size: 11px;
+    line-height: 1.3;
+    color: var(--ink-faint);
+    white-space: nowrap;
+  }
+  .vals dd {
+    margin: 0;
     color: var(--ink);
     font-size: 15px;
+    line-height: 1.3;
+    white-space: nowrap;
   }
   .plots {
     touch-action: pan-y;
