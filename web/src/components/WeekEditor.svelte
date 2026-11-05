@@ -27,7 +27,7 @@
     if (brush === null && modes.length) brush = modes[0]!.id;
   });
 
-  /** Fills by a mode's place in the list: light, dark, outlined; a letter on each. */
+  /** Fills by a mode's place in the list: light, dark, outlined; a letter on each. Same order as MODE_FILLS (lib/week.ts). */
   const FILLS = ['ochre', 'ink', 'line', 'forest', 'rust'];
   const fill = (id: string) => FILLS[Math.max(0, modes.findIndex((m) => m.id === id)) % FILLS.length];
   const letter = (id: string) => (modes.find((m) => m.id === id)?.name ?? id).slice(0, 1).toUpperCase();

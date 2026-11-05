@@ -72,3 +72,18 @@ export function nextChange(grid: WeekGrid, nowMs: number): { at: number; modes: 
   }
   return null;
 }
+
+/** A mode's fill by its place in modes.tsv; the same order as the week grid's (components/WeekEditor.svelte). */
+export interface ModeFill {
+  bg: string;
+  fg: string;
+  /** an outline for the light fill */
+  line?: string;
+}
+export const MODE_FILLS: ModeFill[] = [
+  { bg: 'var(--ochre)', fg: 'var(--on-ochre)' },
+  { bg: 'var(--ink)', fg: 'var(--paper)' },
+  { bg: 'var(--paper-sunken)', fg: 'var(--ink)', line: 'var(--line-strong)' },
+  { bg: 'var(--surface-forest)', fg: 'var(--on-dark)' },
+  { bg: 'var(--surface-rust)', fg: 'var(--on-dark)' },
+];

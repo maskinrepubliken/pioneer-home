@@ -4,10 +4,23 @@
    * outdoor temperature (line), daylight from a sensor that sees only the sky (line, when there is one), heating power per heat source (stacked bars, kW = kWh in the hour), the price
    * paid per kWh (line) and the cost per heat source (stacked bars). Hovering, tapping or the arrow keys pick an
    * hour across every strip; its values are read out above the strips, and every hour is also in the table.
-   * Heat sources keep their colour by name (alphabetical), never by rank.
+   * Heat sources keep their colour by name (alphabetical), never by rank. For a plan, two strips come first: the
+   * heating mode of each hour (a band in the week grid's fills, split in a transition) and each room's target per
+   * quarter (stepped lines, one dash pattern per room).
    */
   import { kr } from '../lib/cost';
   import { seriesFill, seriesStroke } from '../lib/seriesFill';
+  import type { ModeFill } from '../lib/week';
+
+  interface HourMode {
+    name: string;
+    fill: ModeFill;
+  }
+  interface Target {
+    label: string;
+    /** °C per quarter, four per hour */
+    q: (number | null)[];
+  }
 
   interface Source {
     label: string;
@@ -22,6 +35,8 @@
     sources,
     order = [],
     ahead = false,
+    modes = [],
+    targets = [],
   }: {
     /** start of each hour, epoch seconds */
     hours: number[];
@@ -35,6 +50,10 @@
     order?: string[];
     /** the hours are a plan, not history: without a pick the readout shows the first hour */
     ahead?: boolean;
+    /** the heating modes in force each hour (two in a transition); empty: no Läge strip */
+    modes?: HourMode[][];
+    /** each room's target per quarter; empty: no Mål strip */
+    targets?: Target[];
   } = $props();
 
   const ordered = $derived([...sources].sort((a, b) => a.label.localeCompare(b.label, 'sv')));
@@ -108,11 +127,55 @@
     return out;
   }
 
+  /** Runs of hours with the same single mode, labelled when the name fits (a transition hour is a run by itself). */
+  const modeRuns = $derived.by(() => {
+    const runs: { from: number; to: number; parts: HourMode[] }[] = [];
+    modes.forEach((m, i) => {
+      const last = runs[runs.length - 1];
+      const key = (ms: HourMode[]) => ms.map((x) => x.name).join('+');
+      if (last && m.length === 1 && last.parts.length === 1 && key(last.parts) === key(m)) last.to = i;
+      else runs.push({ from: i, to: i, parts: m });
+    });
+    return runs;
+  });
+  const hasModes = $derived(modes.some((m) => m.length));
+  const hasTargets = $derived(targets.some((t) => t.q.some((v) => v !== null)));
+  const targetRange = $derived(range(targets.flatMap((t) => t.q)));
+  const DASHES = ['', '6 3', '1.5 3', '8 3 2 3'];
+  /** A stepped line over the quarters, broken where a value is missing. */
+  function stepPath(vals: (number | null)[], lo: number, hi: number, h: number): string {
+    const qw = bw / 4;
+    let d = '';
+    let pen = false;
+    vals.forEach((v, q) => {
+      if (v === null) {
+        pen = false;
+        return;
+      }
+      const py = (PAD + (1 - (v - lo) / (hi - lo || 1)) * (h - 2 * PAD)).toFixed(1);
+      const x0 = (GUTTER + q * qw).toFixed(1);
+      d += pen ? `V${py}H${(GUTTER + (q + 1) * qw).toFixed(1)}` : `M${x0},${py}H${(GUTTER + (q + 1) * qw).toFixed(1)}`;
+      pen = true;
+    });
+    return d;
+  }
+  /** A room's target in an hour: one value, or the range when it changes within the hour. */
+  function targetIn(t: Target, i: number): string {
+    const v = t.q.slice(i * 4, i * 4 + 4).filter((x): x is number => x !== null);
+    if (!v.length) return '—';
+    const lo = Math.min(...v);
+    const hi = Math.max(...v);
+    return lo === hi ? `${num1(lo)} °C` : `${num1(lo)}–${num1(hi)} °C`;
+  }
+  const modeIn = (i: number) => (modes[i] ?? []).map((m) => m.name).join(' + ') || '—';
+
   const tempRange = $derived(range(outdoor));
   const priceRange = $derived(range(price.map((p) => (p === null ? null : p))));
   const hasSun = $derived(sun.some((v) => v !== null));
   const sunTop = $derived(niceTop(Math.max(0, ...sun.filter((v): v is number => v !== null))));
   const STRIPS = $derived([
+    ...(hasModes ? [{ id: 'lage', title: 'Läge', unit: '', kind: 'modes', h: 22 }] : []),
+    ...(hasTargets ? [{ id: 'mal', title: 'Mål', unit: '°C', kind: 'targets', h: H.line + 8 }] : []),
     { id: 'ute', title: 'Ute', unit: '°C', kind: 'line', h: H.line },
     ...(hasSun ? [{ id: 'sol', title: 'Sol', unit: 'lx', kind: 'sun', h: H.line }] : []),
     { id: 'kw', title: 'Värme', unit: 'kW', kind: 'kw', h: H.bars },
@@ -157,6 +220,8 @@
     {#if shown !== null}
       <span class="when">{dayHour(hours[shown]!)}{active === null ? (ahead ? ' · första timmen' : ' · senaste hela timmen') : ''}</span>
       <span class="vals">
+        {#if hasModes}<span><b class="value">{modeIn(shown)}</b></span>{/if}
+        {#each hasTargets ? targets : [] as t (t.label)}<span><b class="value">{targetIn(t, shown)}</b> {t.label}</span>{/each}
         <span><b class="value">{outdoor[shown] === null ? '—' : `${num1(outdoor[shown]!)} °C`}</b> ute</span>
         {#if hasSun}<span><b class="value">{lux(sun[shown])}</b> sol</span>{/if}
         <span><b class="value">{num2(kwTotal[shown] ?? 0)} kW</b> värme</span>
@@ -180,7 +245,14 @@
     {#if width > 0}
       {#each STRIPS as strip (strip.id)}
         <div class="strip">
-          <span class="stitle">{strip.title} <span class="unit">{strip.unit}</span></span>
+          <span class="stitle"
+            >{strip.title} <span class="unit">{strip.unit}</span>
+            {#if strip.kind === 'targets'}
+              {#each targets as t, k (t.label)}
+                <span class="key"><svg width="22" height="8" aria-hidden="true"><line x1="0" x2="22" y1="4" y2="4" stroke-dasharray={DASHES[k % DASHES.length]} /></svg>{t.label}</span>
+              {/each}
+            {/if}
+          </span>
           <svg
             width={width}
             height={strip.h}
@@ -191,7 +263,32 @@
             onpointerleave={(e) => e.pointerType === 'mouse' && (active = null)}
           >
             <line class="base" x1={GUTTER} x2={width} y1={strip.h - 0.5} y2={strip.h - 0.5} />
-            {#if strip.kind === 'line'}
+            {#if strip.kind === 'modes'}
+              {#each modeRuns as r (r.from)}
+                {#each r.parts as m, k (k)}
+                  {@const w = ((r.to - r.from + 1) * bw) / r.parts.length}
+                  <rect
+                    x={x(r.from) + k * w + 0.5}
+                    y="1"
+                    width={Math.max(w - 1, 0.5)}
+                    height={strip.h - 2}
+                    style="fill: {m.fill.bg}; stroke: {m.fill.line ?? 'none'}"
+                    shape-rendering="crispEdges"
+                  />
+                {/each}
+                {#if r.parts.length === 1}
+                  {@const w = (r.to - r.from + 1) * bw}
+                  {@const label = w >= r.parts[0]!.name.length * 7 + 8 ? r.parts[0]!.name : w >= 12 ? r.parts[0]!.name.slice(0, 1) : ''}
+                  {#if label}<text class="mname" x={x(r.from) + w / 2} y={strip.h / 2 + 4} style="fill: {r.parts[0]!.fill.fg}">{label}</text>{/if}
+                {/if}
+              {/each}
+            {:else if strip.kind === 'targets'}
+              <text class="ax" x={GUTTER - 6} y={PAD + 4}>{targetRange[1]}°</text>
+              <text class="ax" x={GUTTER - 6} y={strip.h - PAD}>{targetRange[0]}°</text>
+              {#each targets as t, k (t.label)}
+                <path class="line step" stroke-dasharray={DASHES[k % DASHES.length]} d={stepPath(t.q, targetRange[0], targetRange[1], strip.h)} />
+              {/each}
+            {:else if strip.kind === 'line'}
               <text class="ax" x={GUTTER - 6} y={PAD + 4}>{tempRange[1]}°</text>
               <text class="ax" x={GUTTER - 6} y={strip.h - PAD}>{tempRange[0]}°</text>
               {#if tempRange[0] < 0 && tempRange[1] > 0}
@@ -239,11 +336,13 @@
   {#if tableOpen}
     <div class="tablewrap">
       <table>
-        <thead><tr><th>Timme</th><th>Ute</th>{#if hasSun}<th>Sol</th>{/if}<th>Värme</th><th>Elpris</th><th>Kostnad</th></tr></thead>
+        <thead><tr><th>Timme</th>{#if hasModes}<th>Läge</th>{/if}{#each hasTargets ? targets : [] as t (t.label)}<th>{t.label}</th>{/each}<th>Ute</th>{#if hasSun}<th>Sol</th>{/if}<th>Värme</th><th>Elpris</th><th>Kostnad</th></tr></thead>
         <tbody>
           {#each hours as t, i (t)}
             <tr>
               <td>{dayHour(t)}</td>
+              {#if hasModes}<td>{modeIn(i)}</td>{/if}
+              {#each hasTargets ? targets : [] as tg (tg.label)}<td class="value">{targetIn(tg, i)}</td>{/each}
               <td class="value">{outdoor[i] === null ? '—' : `${num1(outdoor[i]!)} °C`}</td>
               {#if hasSun}<td class="value">{lux(sun[i])}</td>{/if}
               <td class="value">{num2(kwTotal[i] ?? 0)} kW</td>
@@ -348,6 +447,29 @@
     stroke-width: 2;
     stroke-linejoin: round;
     stroke-linecap: round;
+  }
+  .step {
+    stroke-width: 1.75;
+    stroke-linecap: butt;
+  }
+  .mname {
+    font-family: var(--font-ui);
+    font-size: 11px;
+    font-weight: 600;
+    text-anchor: middle;
+    pointer-events: none;
+  }
+  .key {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: var(--space-3);
+    font-weight: 400;
+    color: var(--ink-muted);
+  }
+  .key line {
+    stroke: var(--ink);
+    stroke-width: 1.75;
   }
   .cursor {
     fill: none;

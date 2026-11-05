@@ -15,6 +15,7 @@
   import { formatQuantity, timeOnly } from '../lib/format';
   import WeekEditor from '../components/WeekEditor.svelte';
   import { MANUAL, PROGRAM, heatModes, modeName } from '../lib/heat';
+  import { MODE_FILLS, inForce, parseWeek, slotOf } from '../lib/week';
   import type { Series } from '../lib/history';
   import { home, sendAction } from '../lib/state.svelte';
 
@@ -43,6 +44,7 @@
     return () => mq.removeEventListener('change', set);
   });
 
+  const week = $derived(parseWeek(home.tables?.files?.['week.tsv'] ?? ''));
   const mode = $derived(typeof home.cells['heat_mode']?.value === 'string' ? (home.cells['heat_mode']!.value as string) : null);
   const modes = $derived(heatModes(Object.values(home.cells)));
   let switching = $state(false);
@@ -76,6 +78,26 @@
       hours,
       outdoor: hours.map((h) => mean(inHour(h).map((s) => s.tout))),
       price: hours.map((h) => mean(inHour(h).map((s) => s.price))),
+      // the modes the plan heats for: the week schedule (also in Manuellt, as the engine plans), or the mode chosen
+      modes: hours.map((h) => {
+        const s = slotOf(h * 1000);
+        const ids = mode !== null && mode !== PROGRAM && mode !== MANUAL ? [mode] : inForce(week, s.day, s.hour);
+        return ids.map((id) => {
+          const k = modes.findIndex((m) => m.id === id);
+          return { name: modes[k]?.name ?? id, fill: MODE_FILLS[Math.max(0, k) % MODE_FILLS.length]! };
+        });
+      }),
+      // each room's target per quarter, from the first hour on
+      targets: (program?.rooms ?? [])
+        .filter((r) => r.setpoints.length)
+        .map((r) => {
+          const q: (number | null)[] = Array.from({ length: hours.length * 4 }, () => null);
+          for (const p of r.setpoints) {
+            const k = Math.round((p.t / 1000 - (hours[0] ?? 0)) / 900);
+            if (k >= 0 && k < q.length) q[k] = p.setpoint;
+          }
+          return { label: r.name, q };
+        }),
       sources: planned.map((r) => ({
         label: r.name,
         kw: hours.map((h) => r.plan!.steps.filter((s) => hourOf(s.t) === h).reduce((n, s) => n + s.power * 0.25, 0)),
@@ -194,7 +216,7 @@
           <span class="sub">per kWh, med moms och påslag</span>
         </div>
       </div>
-      <HeatStrips hours={hourly.hours} outdoor={hourly.outdoor} price={hourly.price} sources={hourly.sources} ahead />
+      <HeatStrips hours={hourly.hours} outdoor={hourly.outdoor} price={hourly.price} sources={hourly.sources} modes={hourly.modes} targets={hourly.targets} ahead />
       <p class="note">
         Prognos från SMHI{#if program.forecast} ({hhmm(program.forecast.created)}){/if}. Elpriser publicerade till
         {program.pricesUntil ? dayTime(program.pricesUntil) : '—'}; efter det räknas med samma kvart dagen innan.
