@@ -26,6 +26,7 @@ export type ApplianceGroup = (typeof APPLIANCE_GROUPS)[number];
 export const DEFAULT_GROUP_BY_KIND: Record<string, ApplianceGroup> = {
   light: 'light',
   thermostat: 'heating',
+  heater: 'heating',
   pwm: 'air',
   climate: 'air',
   motion: 'sensors',
@@ -39,8 +40,8 @@ export interface DeviceDef extends Located {
   room: string;
   group: ApplianceGroup;
   kind: KindSpec;
-  /** 'z2m' -> zigbee2mqtt friendly name; 'mqtt' -> generic JSON topic */
-  source: { type: 'z2m'; friendly: string } | { type: 'mqtt'; topic: string };
+  /** 'z2m' -> zigbee2mqtt friendly name; 'mqtt' -> generic JSON topic; 'estimate' -> filled by the engine itself (kind heater) */
+  source: { type: 'z2m'; friendly: string } | { type: 'mqtt'; topic: string } | { type: 'estimate' };
   name: string;
   note: string;
   /** devices.tsv `watts`: rated power, used to estimate energy and cost from heating demand. */

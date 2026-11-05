@@ -215,10 +215,10 @@ export const GROUP_LABEL: Record<CellGroup, string> = {
   other: 'Övrigt',
 };
 
-/** Same defaults as the engine: light->light, thermostat->heating, pwm/climate->air, motion/contact->sensors, else other. */
+/** Same defaults as the engine: light->light, thermostat/heater->heating, pwm/climate->air, motion/contact->sensors, else other. */
 export function defaultGroup(kind: string): CellGroup {
   if (kind === 'light') return 'light';
-  if (kind === 'thermostat') return 'heating';
+  if (kind === 'thermostat' || kind === 'heater') return 'heating';
   if (kind === 'pwm' || kind === 'climate') return 'air';
   if (kind === 'motion' || kind === 'contact') return 'sensors';
   return 'other';

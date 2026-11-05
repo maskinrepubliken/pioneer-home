@@ -26,6 +26,7 @@
     plug: ['state'],
     pwm: ['level'],
     thermostat: ['temperature', 'setpoint', 'running'],
+    heater: ['demand', 'setpoint'],
     climate: ['temperature', 'humidity'],
     motion: ['occupancy', 'temperature', 'illuminance'],
     contact: ['open'],
@@ -59,7 +60,7 @@
 <li class="row" class:offline>
   <div class="head">
     <div class="line">
-    <span class="kind-icon"><Icon name={(ICONS.has(device.kind) ? device.kind : 'device') as IconName} size={18} /></span>
+    <span class="kind-icon"><Icon name={(device.kind === 'heater' ? 'heat' : ICONS.has(device.kind) ? device.kind : 'device') as IconName} size={18} /></span>
     <span class="name" title={device.id}>{device.name}</span>
     {#if offline}<span class="pill danger" title="zigbee2mqtt når inte enheten; värdena kan vara gamla">nås inte</span>{/if}
     <span class="primary">

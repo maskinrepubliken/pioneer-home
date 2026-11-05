@@ -198,8 +198,10 @@
         <span class="rname">{r.title}</span>
         <span class="sub" title={r.heaters.map((h) => `${h.name}: ${h.offline ? 'nås inte' : h.heating ? 'värmer' : 'vilar'}`).join(', ')}>
           {#if r.heated && r.heaters.length}
+            {@const estimated = r.heaters.every((h) => h.estimated)}
             <span class="hole" class:filled={heatingNow} aria-hidden="true"></span>
-            {#if r.heaters.every((h) => h.offline)}nås inte{:else if heatingNow}värmer{#if demand > 0}&nbsp;{Math.round(demand)}&nbsp;%{/if}{:else}vilar{/if}
+            {#if r.local}eget element {short(r.local.value)}&nbsp;·&nbsp;{/if}
+            {#if r.heaters.every((h) => h.offline)}nås inte{:else if heatingNow}värmer{#if demand > 0}&nbsp;{estimated ? '≈' : ''}{Math.round(demand)}&nbsp;%{/if}{:else if estimated && r.heaters.every((h) => h.heating === null)}okänt{:else}vilar{/if}
           {:else if r.heated}
             {#if r.local}<span title="{r.local.name}: ett element med egen klocka som systemet inte styr">eget element {short(r.local.value)}</span>{:else}ingen termostat{/if}{#if r.plan !== null}&nbsp;· plan {short(r.plan)}{/if}
           {:else if r.humidity !== null}

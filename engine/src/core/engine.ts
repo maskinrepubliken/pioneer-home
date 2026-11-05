@@ -540,6 +540,7 @@ export class Engine {
     if (!dev) throw new Error(`unknown device ${deviceId}`);
     const targets = parseTargets(tokens.flatMap((t) => t.split(/\s+/)).filter(Boolean));
     const payload = dev.kind.toPayload(targets, (prop) => this.store.get(`${dev.id}.${prop}`));
+    if (dev.source.type === 'estimate') throw new Error(`${dev.id} cannot be steered`);
     const topic = dev.source.type === 'z2m' ? `${this.z2mBase()}/${dev.source.friendly}/set` : `${dev.source.topic}/set`;
     if (!this.rateOk(dev.id)) {
       trace.actions.push({ source: tag, detail: `set ${dev.id} ${tokens.join(' ')}`, topic, dryRun: this.dryRun, error: `rate guard: more than ${RATE_MAX} commands to ${dev.id} in ${RATE_WINDOW_MS / 1000}s, dropped` });
@@ -739,11 +740,15 @@ export class Engine {
 
   private indexTopics(): void {
     this.topicToDevice.clear();
-    for (const dev of this.config.devices.values()) this.topicToDevice.set(this.stateTopic(dev), dev);
+    for (const dev of this.config.devices.values()) {
+      const topic = this.stateTopic(dev);
+      if (topic !== null) this.topicToDevice.set(topic, dev);
+    }
   }
 
-  stateTopic(dev: DeviceDef): string {
-    return dev.source.type === 'z2m' ? `${this.z2mBase()}/${dev.source.friendly}` : dev.source.topic;
+  /** The topic a device reports on; null for one the engine estimates itself. */
+  stateTopic(dev: DeviceDef): string | null {
+    return dev.source.type === 'z2m' ? `${this.z2mBase()}/${dev.source.friendly}` : dev.source.type === 'mqtt' ? dev.source.topic : null;
   }
 
   private subscribeAll(): void {

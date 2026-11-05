@@ -24,7 +24,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { Logger } from 'pino';
 import type { Engine } from '../core/engine.js';
 import { comfortBand, planRoom, type Plan, type PlanInput } from '../core/planner.js';
-import { backtest, buildSamples, fitTrajectory, holdingPower, iconOctas, solarElevation, sunFactor, usable, type Points, type RoomModel } from '../core/thermal.js';
+import { backtest, buildSamples, fitLocalHeater, fitTrajectory, holdingPower, iconOctas, localDemand, meanOver, solarElevation, sunFactor, usable, type LocalHeaterModel, type LocalSample, type Points, type RoomModel } from '../core/thermal.js';
 import type { Value } from '../formula/values.js';
 import { scheduleAt } from '../core/schedule.js';
 import { forecastAt, type ForecastService } from './forecast.js';
@@ -88,6 +88,20 @@ export interface ProgramRoom {
   note: string | null;
 }
 
+/** A heater with its own clock (kind heater, source estimate): what it is estimated to do now, and its model. */
+export interface LocalHeaterState {
+  id: string;
+  name: string;
+  room: string;
+  kw: number;
+  model: LocalHeaterModel | null;
+  /** the room temperature (its other sensors), the setpoint by its clock, the estimated share of time it heats */
+  temperature: number | null;
+  setpoint: number | null;
+  demand: number | null;
+  note: string | null;
+}
+
 export interface ProgramState {
   at: number;
   fittedAt: number | null;
@@ -99,16 +113,18 @@ export interface ProgramState {
   /** every quarter ahead, planned or not: epoch ms, outdoor °C (forecast), kr/kWh paid */
   ahead: { t: number; tout: number; price: number }[];
   rooms: ProgramRoom[];
+  local: LocalHeaterState[];
   errors: string[];
 }
 
 export class ProgramService {
   private models = new Map<string, Saved>();
+  private localModels = new Map<string, LocalHeaterModel | null>();
   private fittedAt: number | null = null;
   /** program_learn_since and the half-life the models were fitted with: a change refits at once */
   private fittedWith = '';
   private learnFrom = 0;
-  private state: ProgramState = { at: 0, fittedAt: null, learn: { from: 0, halfLifeDays: 7, since: null, maxError: 0.5 }, forecast: null, pricesUntil: null, ahead: [], rooms: [], errors: [] };
+  private state: ProgramState = { at: 0, fittedAt: null, learn: { from: 0, halfLifeDays: 7, since: null, maxError: 0.5 }, forecast: null, pricesUntil: null, ahead: [], rooms: [], local: [], errors: [] };
   private running = false;
 
   constructor(
@@ -118,13 +134,14 @@ export class ProgramService {
   ) {
     if (existsSync(opts.stateFile)) {
       try {
-        const saved = JSON.parse(readFileSync(opts.stateFile, 'utf8')) as { fittedAt: number; fittedWith?: string; learnFrom?: number; models: Record<string, Saved> };
+        const saved = JSON.parse(readFileSync(opts.stateFile, 'utf8')) as { fittedAt: number; fittedWith?: string; learnFrom?: number; models: Record<string, Saved>; local?: Record<string, LocalHeaterModel | null> };
         // models saved before the trajectory fit have no check: fit again
         if (Object.values(saved.models).every((v) => 'check' in v && (!v.model || 'rmse' in v.model))) {
           this.fittedAt = saved.fittedAt;
           this.fittedWith = saved.fittedWith ?? '';
           this.learnFrom = saved.learnFrom ?? 0;
           for (const [k, v] of Object.entries(saved.models)) this.models.set(k, v);
+          for (const [k, v] of Object.entries(saved.local ?? {})) this.localModels.set(k, v);
         }
       } catch {
         this.fittedAt = null;
@@ -194,6 +211,32 @@ export class ProgramService {
     return out;
   }
 
+  /**
+   * Heaters with their own clock (kind heater, source estimate, with watts) and the `sensor` constant of the heating
+   * history record that writes their estimate (it is also what their model learns from).
+   */
+  private localHeaters(): { id: string; name: string; room: string; kw: number; sensor: string | null }[] {
+    const cfg = this.engine.config;
+    return [...cfg.devices.values()]
+      .filter((d) => d.kind.name === 'heater' && d.source.type === 'estimate' && d.watts)
+      .map((d) => {
+        const rec = cfg.history.find((r) => r.collection === 'heating' && r.refs.some((x) => x.split('.')[0] === d.id));
+        const sensor = rec?.fields.find((f) => f.field === 'sensor')?.source.match(/^"(.*)"$/)?.[1] ?? null;
+        return { id: d.id, name: d.name, room: d.room, kw: d.watts! / 1000, sensor };
+      });
+  }
+
+  /** A room's temperature now: the mean of its other reachable sensors, leaving out the setting reading_exclude. */
+  private roomTemperature(room: string, except: string): number | null {
+    const ex = this.engine.store.has('reading_exclude') ? String(this.engine.store.get('reading_exclude') ?? '') : '';
+    const excluded = new Set(ex.split(/[\s,]+/).filter(Boolean));
+    const vals = [...this.engine.config.devices.values()]
+      .filter((d) => d.room === room && d.id !== except && this.engine.store.get(`${d.id}.available`) !== false && !excluded.has(`${d.id}.temperature`))
+      .map((d) => (this.engine.store.has(`${d.id}.temperature`) ? this.engine.store.get(`${d.id}.temperature`) : null))
+      .filter((v): v is number => typeof v === 'number');
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  }
+
   private async fit(rooms: { id: string; heaters: Heater[] }[]): Promise<void> {
     const until = Date.now();
     const learn = this.learnSince();
@@ -241,10 +284,30 @@ export class ProgramService {
       this.models.set(room.id, { model, observed, check });
       this.log.info({ room: room.id, samples: samples.length, model, check: check && { rmse: check.rmse, max: check.max } }, 'program model fitted');
     }
+    // heaters with their own clock: from their own history rows (room temperature, setpoint), outdoor from the weather
+    for (const h of this.localHeaters()) {
+      if (!h.sensor) {
+        this.localModels.set(h.id, null);
+        continue;
+      }
+      const rows = heating.filter((r) => r['sensor'] === h.sensor);
+      const tin = series(rows, (r) => r['current']);
+      const target = series(rows, (r) => r['target']);
+      const samples: LocalSample[] = [];
+      for (let a = Math.ceil(since / 1000 / FIT_STEP_S) * FIT_STEP_S; a + FIT_STEP_S <= until / 1000; a += FIT_STEP_S) {
+        const t = meanOver(tin, a, a + FIT_STEP_S, 2 * 3600);
+        const sp = meanOver(target, a, a + FIT_STEP_S, 2 * 3600);
+        const out = meanOver(outdoor, a, a + FIT_STEP_S, 3 * 3600);
+        if (t !== null && sp !== null && out !== null) samples.push({ t: a, tin: t, tout: out, setpoint: sp });
+      }
+      const model = fitLocalHeater(samples, h.kw, FIT_STEP_S);
+      this.localModels.set(h.id, model);
+      this.log.info({ heater: h.id, samples: samples.length, model }, 'local heater model fitted');
+    }
     this.fittedAt = Date.now();
     this.fittedWith = `${learn.text ?? ''}|${halfLife}`;
     this.learnFrom = since;
-    writeFileSync(this.opts.stateFile, JSON.stringify({ fittedAt: this.fittedAt, fittedWith: this.fittedWith, learnFrom: this.learnFrom, models: Object.fromEntries(this.models) }));
+    writeFileSync(this.opts.stateFile, JSON.stringify({ fittedAt: this.fittedAt, fittedWith: this.fittedWith, learnFrom: this.learnFrom, models: Object.fromEntries(this.models), local: Object.fromEntries(this.localModels) }));
   }
 
   async run(): Promise<void> {
@@ -255,7 +318,7 @@ export class ProgramService {
       const rooms = this.rooms();
       const learn = this.learnSince();
       const refit = `${learn.text ?? ''}|${this.halfLifeDays()}` !== this.fittedWith;
-      if (refit || !this.fittedAt || Date.now() - this.fittedAt > FIT_EVERY_MS || rooms.some((r) => !this.models.has(r.id))) {
+      if (refit || !this.fittedAt || Date.now() - this.fittedAt > FIT_EVERY_MS || rooms.some((r) => !this.models.has(r.id)) || this.localHeaters().some((h) => !this.localModels.has(h.id))) {
         try {
           await this.fit(rooms);
         } catch (e) {
@@ -352,6 +415,29 @@ export class ProgramService {
         inputs.push({ cell: `program.${room.id}`, value: entry.setpoint });
         out.push(entry);
       }
+      // heaters with their own clock: the room temperature, the setpoint by the clock (<room>_local_setpoint), the estimate
+      const local: LocalHeaterState[] = [];
+      const toutNow = this.engine.store.has('weather.temperature') ? this.engine.store.get('weather.temperature') : null;
+      for (const h of this.localHeaters()) {
+        const model = this.localModels.get(h.id) ?? null;
+        const temperature = this.roomTemperature(h.room, h.id);
+        const spCell = `${h.room}_local_setpoint`;
+        const sp = this.engine.store.has(spCell) ? this.engine.store.get(spCell) : null;
+        const setpoint = typeof sp === 'number' ? sp : null;
+        const demand = temperature !== null && setpoint !== null && typeof toutNow === 'number' ? localDemand(model, temperature, toutNow, setpoint, h.kw) : null;
+        const note =
+          setpoint === null
+            ? `cellen ${spCell} saknas: elementets inställning är okänd`
+            : temperature === null
+              ? 'ingen annan givare i rummet mäter temperaturen'
+              : !h.sensor
+                ? 'ingen värmehistorik i history.tsv för elementet, så modellen kan inte lära sig'
+                : !model
+                  ? 'lär sig ännu: behöver några uppvärmningar och avsvalningar, så länge räknas bara fullt och avslaget'
+                  : null;
+        inputs.push({ cell: `${h.id}.temperature`, value: temperature }, { cell: `${h.id}.setpoint`, value: setpoint }, { cell: `${h.id}.demand`, value: demand });
+        local.push({ id: h.id, name: h.name, room: h.room, kw: h.kw, model, temperature, setpoint, demand, note });
+      }
       if (inputs.length) this.engine.applyInputs(inputs, 'program');
       this.state = {
         at: now,
@@ -361,6 +447,7 @@ export class ProgramService {
         pricesUntil,
         ahead: env.map((e) => ({ t: e.t, tout: Math.round(e.tout * 10) / 10, price: Math.round(e.price * 1000) / 1000 })),
         rooms: out,
+        local,
         errors,
       };
     } finally {

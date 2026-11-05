@@ -39,6 +39,8 @@ export interface Heater {
   demand: number | null;
   setpoint: number | null;
   offline: boolean;
+  /** a heater with its own clock: heating and demand are the engine's estimate */
+  estimated: boolean;
 }
 
 export interface HeatRoom {
@@ -94,13 +96,13 @@ export function heatRooms(layout: LiveLayout, byId: Record<string, Cell | undefi
     const h = reading('humidity');
     const devices = (live?.columns ?? []).flatMap((c) => c.devices).concat(live?.hidden ?? []);
     const heaters = devices
-      .filter((d) => d.kind === 'thermostat')
+      .filter((d) => d.kind === 'thermostat' || d.kind === 'heater')
       .map((d): Heater => {
         const offline = d.props['available']?.value === false;
         const running = d.props['running']?.value;
         const demand = num(d.props['demand']);
         const heating = offline ? null : typeof running === 'string' ? running.toLowerCase() === 'heat' : demand === null ? null : demand > 0;
-        return { id: d.id, name: d.name, heating, demand, setpoint: num(d.props['setpoint']), offline };
+        return { id: d.id, name: d.name, heating, demand, setpoint: num(d.props['setpoint']), offline, estimated: d.kind === 'heater' };
       })
       .sort((a, b) => a.name.localeCompare(b.name, 'sv'));
     return {

@@ -232,8 +232,9 @@ export function loadConfig(dir: string): LoadResult {
       let source: DeviceDef['source'];
       if (src.startsWith('z2m:') && src.length > 4) source = { type: 'z2m', friendly: src.slice(4).trim() };
       else if (src.startsWith('mqtt:') && src.length > 5) source = { type: 'mqtt', topic: src.slice(5).trim() };
+      else if (src === 'estimate' && kind.name === 'heater') source = { type: 'estimate' };
       else {
-        err(tb, row, `bad source "${src}" (expected z2m:<friendly name> or mqtt:<topic>)`, 'source');
+        err(tb, row, kind.name === 'heater' ? `a heater's source is "estimate" (the engine estimates it), got "${src}"` : `bad source "${src}" (expected z2m:<friendly name> or mqtt:<topic>)`, 'source');
         continue;
       }
       if (devices.has(id)) {

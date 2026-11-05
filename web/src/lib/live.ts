@@ -94,6 +94,8 @@ export function roomReadings(devices: LiveDevice[], excluded: Set<string> = new 
   for (const prop of READING_PROPS) {
     const sources: ReadingSource[] = [];
     for (const d of devices) {
+      // a heater with its own clock carries the room's temperature as estimated from the others: not a source
+      if (d.kind === 'heater') continue;
       const c = d.props[prop];
       if (!c || (typeof c.value !== 'number' && typeof c.value !== 'boolean')) continue;
       sources.push({

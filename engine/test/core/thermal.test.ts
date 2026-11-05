@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { backtest, buildSamples, fitModel, fitTrajectory, holdingPower, iconOctas, meanOver, nelderMead, simulate, solarElevation, step, sunFactor, usable, type RoomModel, type ThermalSample } from '../../src/core/thermal.js';
+import { backtest, buildSamples, fitLocalHeater, fitModel, fitTrajectory, localDemand, localPhase, holdingPower, iconOctas, meanOver, nelderMead, simulate, solarElevation, step, sunFactor, usable, type RoomModel, type ThermalSample } from '../../src/core/thermal.js';
 import { comfortBand, planRoom, type PlanInput } from '../../src/core/planner.js';
 
 const LAT = 57.6;
@@ -144,6 +144,51 @@ describe('thermal model', () => {
     expect(holdingPower(model, 18, 20)).toBe(0);
     const held = step(model, 18, 5, holdingPower(model, 18, 5), 0, 10);
     expect(held).toBeCloseTo(18, 6);
+  });
+});
+
+describe('a heater with its own clock', () => {
+  /** A room with a thermostatic 1.5 kW heater: 17 °C from 16 to 06, 12 °C by day; one-minute steps, read in tenths. */
+  function room(days: number) {
+    const truth = { a: 1.2, b: 0.06, d: 0.02 };
+    const kw = 1.5;
+    const out: { t: number; tin: number; tout: number; setpoint: number }[] = [];
+    let tin = 15;
+    let on = false;
+    let energy = 0;
+    for (let min = 0; min < days * 1440; min++) {
+      const hour = (min / 60) % 24;
+      const setpoint = hour >= 16 || hour < 6 ? 17 : 12;
+      const tout = 3 + 3 * Math.sin((min / 1440) * 2 * Math.PI);
+      if (tin < setpoint - 0.2) on = true;
+      if (tin > setpoint + 0.2) on = false;
+      const p = on ? kw : 0;
+      energy += p / 60;
+      if (min % 15 === 0) out.push({ t: min * 60, tin: Math.round(tin * 10) / 10, tout, setpoint });
+      tin += (truth.a * p - truth.b * (tin - tout) + truth.d) / 60;
+    }
+    return { out, energy, truth, kw };
+  }
+
+  it('learns from warm-ups and cool-downs, and estimates the energy within a fifth', () => {
+    const { out, energy, truth, kw } = room(6);
+    const m = fitLocalHeater(out, kw, 900)!;
+    expect(m.b).toBeCloseTo(truth.b, 1);
+    expect(m.a / truth.a).toBeGreaterThan(0.8);
+    expect(m.a / truth.a).toBeLessThan(1.25);
+    // the estimated share of each quarter, as kWh
+    const est = out.reduce((n, s) => n + ((localDemand(m, s.tin, s.tout, s.setpoint, kw) ?? 0) / 100) * kw * 0.25, 0);
+    expect(est / energy).toBeGreaterThan(0.8);
+    expect(est / energy).toBeLessThan(1.2);
+  });
+
+  it('full power well below the setpoint, off well above, unknown in between without a model', () => {
+    expect(localPhase(15, 17)).toBe('on');
+    expect(localPhase(17.9, 17)).toBe('off');
+    expect(localDemand(null, 15, 0, 17, 1.5)).toBe(100);
+    expect(localDemand(null, 18, 0, 17, 1.5)).toBe(0);
+    expect(localDemand(null, 17, 0, 17, 1.5)).toBeNull();
+    expect(fitLocalHeater([], 1.5, 900)).toBeNull();
   });
 });
 

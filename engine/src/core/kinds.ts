@@ -314,6 +314,30 @@ const thermostat: KindSpec = {
   },
 };
 
+/**
+ * A heater the engine can neither read nor steer (its own clock, no radio), with devices.tsv source `estimate`:
+ * the program service fills its cells with an estimate (adapters/program.ts): the room temperature, the setpoint
+ * from `<room>_local_setpoint`, and the share of time it heats, so it gets a cost like a thermostat.
+ */
+const heater: KindSpec = {
+  name: 'heater',
+  primary: 'demand',
+  cells: [
+    { prop: 'demand', type: 'number' },
+    { prop: 'setpoint', type: 'number' },
+    { prop: 'temperature', type: 'number' },
+  ],
+  fromPayload() {
+    return {};
+  },
+  toPayload() {
+    throw KIND_ERR('a heater with its own clock cannot be steered');
+  },
+  applySet(state) {
+    return state;
+  },
+};
+
 /** Hue dimmer and similar: every press is reported as an `action` string. */
 const remote: KindSpec = {
   name: 'remote',
@@ -392,7 +416,7 @@ const pwm: KindSpec = {
   },
 };
 
-export const KINDS: Record<string, KindSpec> = { light, plug, motion, contact, thermostat, remote, climate, pwm };
+export const KINDS: Record<string, KindSpec> = { light, plug, motion, contact, thermostat, heater, remote, climate, pwm };
 
 /**
  * zigbee2mqtt reports a command it could not deliver on `<base>/bridge/logging` as

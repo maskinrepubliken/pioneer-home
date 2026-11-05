@@ -337,3 +337,77 @@ export function step(m: RoomModel, tin: number, tout: number, power: number, sun
 export function holdingPower(m: RoomModel, tin: number, tout: number, sun = 0): number {
   return Math.max(0, (m.b * (tin - tout) - m.c * sun - m.d) / m.a);
 }
+
+/**
+ * A heater with its own thermostat and clock that the engine cannot read (devices.tsv kind heater): its power is
+ * known only at the extremes. Well below its setpoint it heats at full power, well above it is off; in between it
+ * holds the room and its mean power is what the room loses. From the room's temperature (another sensor in the
+ * room), the setpoint by its clock and the outdoor temperature:
+ *
+ *   off  (tin > setpoint + OFF_BAND):  dT/dt = -b (T - Tout) + d          -> b, d by least squares
+ *   on   (tin < setpoint - ON_BAND):   dT/dt = a P - b (T - Tout) + d     -> a, the median over the hours
+ *   hold (in between):                 P = (b (T - Tout) - d) / a, within 0..P
+ *
+ * Sun is left out. A rough estimate, for the cost of a heater that cannot be measured.
+ */
+export interface LocalHeaterModel {
+  a: number;
+  b: number;
+  d: number;
+  /** hours of the fit: off, on */
+  nOff: number;
+  nOn: number;
+}
+
+export interface LocalSample {
+  /** epoch seconds, start of the step */
+  t: number;
+  tin: number;
+  tout: number;
+  setpoint: number;
+}
+
+export const ON_BAND = 0.7;
+export const OFF_BAND = 0.5;
+
+export type LocalPhase = 'on' | 'off' | 'hold';
+export function localPhase(tin: number, setpoint: number): LocalPhase {
+  return tin < setpoint - ON_BAND ? 'on' : tin > setpoint + OFF_BAND ? 'off' : 'hold';
+}
+
+/** Fits on hour-long stretches of `stepS` samples in one phase (the sensors' tenths make shorter ones noise). */
+export function fitLocalHeater(samples: LocalSample[], kw: number, stepS: number, minOff = 6, minOn = 2): LocalHeaterModel | null {
+  const k = Math.max(1, Math.round(3600 / stepS));
+  const off: { x: number; y: number }[] = [];
+  const on: { x: number; y: number }[] = [];
+  for (let i = 0; i + k < samples.length; i += k) {
+    const run = samples.slice(i, i + k + 1);
+    if (run.some((s, j) => j > 0 && s.t - run[j - 1]!.t !== stepS)) continue;
+    const phases = new Set(run.slice(0, k).map((s) => localPhase(s.tin, s.setpoint)));
+    if (phases.size !== 1 || phases.has('hold')) continue;
+    const first = run[0]!;
+    const last = run[k]!;
+    const y = ((last.tin - first.tin) * 3600) / (last.t - first.t);
+    const x = run.slice(0, k).reduce((n, s) => n + (s.tin - s.tout), 0) / k;
+    (phases.has('on') ? on : off).push({ x, y });
+  }
+  if (off.length < minOff || on.length < minOn) return null;
+  const fit = leastSquares(off.map((p) => [-p.x, 1]), off.map((p) => p.y));
+  if (!fit) return null;
+  const [b, d] = fit as [number, number];
+  if (!(b > 0)) return null;
+  const as = on.map((p) => (p.y + b * p.x - d) / kw).sort((p, q) => p - q);
+  const a = as[Math.floor(as.length / 2)]!;
+  if (!(a > 0)) return null;
+  return { a, b, d, nOff: off.length, nOn: on.length };
+}
+
+/** The share of time the heater heats now, percent; null in the hold band without a model. */
+export function localDemand(m: LocalHeaterModel | null, tin: number, tout: number, setpoint: number, kw: number): number | null {
+  const phase = localPhase(tin, setpoint);
+  if (phase === 'on') return 100;
+  if (phase === 'off') return 0;
+  if (!m) return null;
+  const p = (m.b * (tin - tout) - m.d) / m.a;
+  return Math.round(Math.min(Math.max(p / kw, 0), 1) * 100);
+}
