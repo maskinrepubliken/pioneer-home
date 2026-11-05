@@ -66,7 +66,7 @@ TSV: tab-separated, no quoting, `#` comment lines, header row, columns matched b
 
 | table | columns | notes |
 |---|---|---|
-| `settings.tsv` | key, value, note | engine configuration (System); every key is a cell; `title` is the name in the UI header and browser tab |
+| `settings.tsv` | key, value, note | engine configuration (System); every key is a cell; `title` is the name in the UI header and browser tab; `start_url` (optional) is where the system icon far left in the header links to |
 | `rooms.tsv` | id, name, note | room ids and Swedish names, in the order the Live view shows them; `name` becomes `<device>.room_name` and the `location` in climate history |
 | `devices.tsv` | id, room, kind, group, source, name, watts, note | id = stable device name, room ∈ rooms.tsv; group (optional) = appliance column in Live, see below; watts (optional) = rated power, used for the cost estimate; kind ∈ light, plug, motion, contact, thermostat, remote, climate, pwm. source `z2m:<friendly>` or `mqtt:<topic>` |
 | `cells.tsv` | id, formula, initial, type, room, group, name, note | with formula = computed (typed in dependency order, cycles are errors); without formula = held value with `initial` (type inferred, or `type` ∈ number, boolean, string, duration, timeofday, timestamp); `room` (optional, from rooms.tsv) and `group` (optional) place the cell in a room and appliance column in the UI; `name` is the Swedish label shown instead of the id |

@@ -1,6 +1,7 @@
 # Engine configuration (System). Thresholds and other house constants live in cells.tsv. Every key is also readable as a cell.
 key	value	note
 title	pioneer-home	namnet i sidhuvudet och webbläsarfliken
+start_url		startsidan som ikonen längst till vänster i sidhuvudet länkar till; tom = ingen länk
 timezone	Europe/Stockholm	
 latitude	59.33	example location
 longitude	18.07	example location

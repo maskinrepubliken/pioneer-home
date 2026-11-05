@@ -23,10 +23,21 @@
   $effect(() => {
     document.title = title;
   });
+
+  /** The system's icon, far left: a link to the setting `start_url` (a start page for all the home's services) when there is one. */
+  const startUrl = $derived.by(() => {
+    const v = home.cells['start_url']?.value;
+    return typeof v === 'string' && v.trim() ? v.trim() : null;
+  });
 </script>
 
 <header>
   <div class="bar">
+    {#if startUrl}
+      <a class="icon" href={startUrl} title="Startsidan" aria-label="Startsidan"><img src="./favicon.svg" alt="" width="28" height="28" /></a>
+    {:else}
+      <img class="icon" src="./favicon.svg" alt="" width="28" height="28" />
+    {/if}
     <a class="brand" href="#/heat" aria-label={title}>
       <span class="dot" class:ok={home.connected} title={home.connected ? 'ansluten' : 'frånkopplad, återansluter…'}></span>
       <span class="title">{title}</span>
@@ -76,6 +87,22 @@
       padding-left: var(--space-10);
       padding-right: var(--space-10);
     }
+  }
+  .icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    border-radius: var(--radius-s);
+  }
+  a.icon:hover {
+    background: var(--paper-hover);
+  }
+  a.icon:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  /* the icon and the name sit together, the nav keeps its own gap */
+  .icon + .brand {
+    margin-left: calc(-1 * var(--space-2));
   }
   .brand {
     display: inline-flex;
