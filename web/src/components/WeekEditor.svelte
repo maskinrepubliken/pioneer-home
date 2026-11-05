@@ -4,7 +4,8 @@
    * brush and tap or drag over hours; each hour has one mode. Where the mode changes, the new mode's first hour is a
    * transition by itself (both modes, drawn split; lib/week.ts inForce, as the engine does). Saved through
    * PUT /api/tables/week.tsv, which validates first. Each mode has its own fill and letter, so the grid reads on an
-   * e-ink panel too. The modes themselves are edited on the Lägen page.
+   * e-ink panel too. The modes themselves are edited on the Lägen page. The grid only paints after Redigera: until
+   * then a touch scrolls the page as usual (on a phone the grid would otherwise take every swipe).
    */
   import { saveTable } from '../lib/api';
   import { heatModes } from '../lib/heat';
@@ -22,6 +23,7 @@
     if (!dirty) grid = parseWeek(text);
   });
 
+  let editing = $state(false);
   let brush = $state<string | null>(null);
   $effect(() => {
     if (brush === null && modes.length) brush = modes[0]!.id;
@@ -51,6 +53,7 @@
     return d ? { day: Number(d.dataset['day']), hour: Number(d.dataset['hour']) } : null;
   }
   function down(e: PointerEvent) {
+    if (!editing) return;
     const c = cellAt(e.clientX, e.clientY);
     if (!c) return;
     painting = true;
@@ -81,6 +84,7 @@
       else if (!res.ok) errors = [`sparat, men motorn kunde inte läsa in det: ${res.reloadError ?? 'okänt fel'}`];
       else {
         dirty = false; // the saved table comes back through the config event and is loaded then
+        editing = false;
         notify('Veckoschemat är sparat.');
       }
     } catch (e) {
@@ -92,6 +96,7 @@
     grid = parseWeek(original);
     dirty = false;
     errors = [];
+    editing = false;
   }
 
   const now = $derived(slotOf(home.now));
@@ -100,8 +105,9 @@
 <section class="week" aria-labelledby="h-week">
   <header class="head">
     <h2 id="h-week">Veckoschema</h2>
-    <span class="faint small">tryck eller dra över timmarna</span>
+    {#if editing}<span class="faint small">tryck eller dra över timmarna</span>{/if}
   </header>
+  {#if editing}
   <div class="tools" role="toolbar" aria-label="Pensel">
     {#each modes as m (m.id)}
       <button class="btn small brush" class:on={brush === m.id} aria-pressed={brush === m.id} onclick={() => (brush = m.id)}>
@@ -110,9 +116,10 @@
     {/each}
     <a class="small edit" href="#/modes">Redigera lägen</a>
   </div>
+  {/if}
 
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="grid" onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={up}>
+  <div class="grid" class:editing onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={up}>
     <span></span>
     {#each DAY_NAMES as d, i (d)}<span class="day" class:today={i === now.day}>{d}</span>{/each}
     {#each Array.from({ length: 24 }, (_, h) => h) as h (h)}
@@ -138,9 +145,13 @@
   </p>
   {#if errors.length}<p class="errors" role="alert">{errors.join(' · ')}</p>{/if}
   <div class="actions">
-    <button class="btn primary" disabled={!dirty || saving} onclick={save}>{saving ? 'Sparar…' : 'Spara'}</button>
-    <button class="btn" disabled={!dirty || saving} onclick={revert}>Ångra</button>
-    {#if dirty}<span class="small">ändrat, inte sparat</span>{/if}
+    {#if editing}
+      <button class="btn primary" disabled={!dirty || saving} onclick={save}>{saving ? 'Sparar…' : 'Spara'}</button>
+      <button class="btn" disabled={saving} onclick={revert}>{dirty ? 'Ångra' : 'Klar'}</button>
+      {#if dirty}<span class="small">ändrat, inte sparat</span>{/if}
+    {:else}
+      <button class="btn" onclick={() => (editing = true)}>Redigera</button>
+    {/if}
   </div>
 </section>
 
@@ -183,9 +194,15 @@
     display: grid;
     grid-template-columns: 26px repeat(7, minmax(0, 1fr));
     gap: 2px;
+    max-width: 560px;
+  }
+  /* painting: a swipe paints instead of scrolling */
+  .grid.editing {
     touch-action: none;
     user-select: none;
-    max-width: 560px;
+  }
+  .grid.editing .cell {
+    cursor: pointer;
   }
   .day,
   .hour {
@@ -206,7 +223,6 @@
     border: 1px solid var(--line);
     border-radius: 3px;
     overflow: hidden;
-    cursor: pointer;
     background: var(--paper);
   }
   .cell.now {
