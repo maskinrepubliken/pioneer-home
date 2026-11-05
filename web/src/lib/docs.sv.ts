@@ -239,6 +239,23 @@ export const TABLES: TableDoc[] = [
     ],
   },
   {
+    file: 'week.tsv',
+    title: 'Veckoschema',
+    group: 'behaviour',
+    purpose: 'Värmens veckoschema: vilket läge (Hemma, Sova, Borta) som gäller varje timme, måndag till söndag. Gäller när värmeläget är Program.',
+    whenEdit: 'När vardagen ändras: andra tider för sömn, dagar hemifrån. Enklast i rutnätet på sidan Program.',
+    example: '07 · home · home · home · home · home · home · home',
+    about: [
+      'En rad per timme (0-23) och en kolumn per veckodag. Ett läge i rutan är det läget; två lägen i samma ruta, till exempel "home sleep", är en övergång: varje rum får det varmaste lägets temperatur minus heat_overlap_slack.',
+      'Lägenas temperaturer per rum står i Celler (<rum>_home, <rum>_sleep, <rum>_away). Programmet värmer inom dem efter elpris och väder och börjar själv i tid inför ett varmare läge.',
+      'Varje läge blir systemcellen week.<läge> (SANT den timme läget gäller), som cellerna heat_use_<läge> läser.',
+    ],
+    columns: [
+      { name: 'hour', what: 'Timmen som börjar då, 0-23.', example: '07' },
+      { name: 'mon … sun', what: 'Läget eller lägena den timmen den dagen, åtskilda med mellanslag. Tomt = inget läge (Kallt).', example: 'home sleep' },
+    ],
+  },
+  {
     file: 'history.tsv',
     title: 'Historik',
     group: 'system',

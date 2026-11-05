@@ -1,15 +1,15 @@
 /**
- * The Värme page's model, read from cell naming conventions (see CLAUDE.md, "Heating modes"). Pure functions, no Svelte.
+ * The heating modes' model, read from cell naming conventions (see CLAUDE.md, "Heating modes"). Pure functions, no
+ * Svelte. Used by the start page, Värme and Program.
  *
- *   heat_mode            held string: "auto" (follow the schedule), a mode id chosen by hand, "manual" (chosen
- *                        on the page or a target changed in the UI: the targets are left alone until a mode or auto
- *                        is chosen) or "manual_until_switch" (a setpoint changed on a thermostat: the same, until the
- *                        schedule's next switch)
- *   heat_active          the mode in force now (the chosen one, or the schedule's)
- *   heat_sched_now       the schedule's mode now; its `note` describes the schedule
- *   heat_use_<mode>      TRUE while <mode> counts in the rooms' plans (the schedule's overlap makes two count at once);
- *                        the cell's `name` is the mode's Swedish label, its row order the order of the buttons
- *   <room>_plan          the room's planned temperature; <room>_target the room's target (a rule copies the plan into it)
+ *   heat_mode            held string: "program" (the week schedule, week.tsv, with the program's planning), a mode id
+ *                        chosen to hold all the time, or "manual" (a target changed by hand, in the UI or on a
+ *                        thermostat: the targets are left alone until program or a mode is chosen)
+ *   heat_use_<mode>      TRUE while <mode> is in force; the cell's `name` is the mode's Swedish label, its row order the
+ *                        order of the buttons
+ *   heat_transition      TRUE when two modes are in force at once (a transition hour in the schedule)
+ *   <room>_comfort       the modes' temperature for the room now; <room>_plan what its target follows (the program's
+ *                        setpoint when it has one); <room>_target the room's target
  *
  * Every room is on the page; the heated ones (a `_plan` or a `_target` cell) first.
  */
@@ -17,14 +17,11 @@ import type { Cell } from './api';
 import type { LiveLayout } from './live';
 import { parseTsv } from './tsv';
 
-export const AUTO = 'auto';
-export const MANUAL = 'manual';
-/** Manuellt from a setpoint changed on a thermostat: the schedule takes over again at its next switch. */
-export const MANUAL_UNTIL_SWITCH = 'manual_until_switch';
-export const MANUAL_NAME = 'Manuellt';
-/** The program planner sets the room targets (heat_mode program, the Program page). */
+/** The program: the week schedule, heated by price and weather. */
 export const PROGRAM = 'program';
 export const PROGRAM_NAME = 'Program';
+export const MANUAL = 'manual';
+export const MANUAL_NAME = 'Manuellt';
 
 export interface HeatMode {
   id: string;
@@ -71,8 +68,16 @@ export function heatModes(cells: Cell[]): HeatMode[] {
   return out;
 }
 
-export function heatState(byId: Record<string, Cell | undefined>): { mode: string | null; active: string | null; scheduled: string | null } {
-  return { mode: str(byId['heat_mode']), active: str(byId['heat_active']), scheduled: str(byId['heat_sched_now']) };
+export function heatState(byId: Record<string, Cell | undefined>): { mode: string | null; transition: boolean } {
+  return { mode: str(byId['heat_mode']), transition: byId['heat_transition']?.value === true };
+}
+
+/** The Swedish name of a heat_mode value. */
+export function modeName(mode: string | null, modes: HeatMode[]): string {
+  if (mode === null) return '—';
+  if (mode === PROGRAM) return PROGRAM_NAME;
+  if (mode === MANUAL) return MANUAL_NAME;
+  return modes.find((m) => m.id === mode)?.name ?? mode;
 }
 
 /** Every room in the Live order, the heated ones first, with its readings and heat sources (thermostats). */
@@ -112,7 +117,7 @@ export function heatRooms(layout: LiveLayout, byId: Record<string, Cell | undefi
 
 /**
  * The actions for a room target changed in the UI: with heating modes in the tables, the mode first becomes
- * manual, so the schedule leaves the new target alone.
+ * manual, so neither the program nor a mode overwrites the new target.
  */
 export function targetActions(cellId: string, value: number, byId: Record<string, Cell | undefined>): string[] {
   const mode = str(byId['heat_mode']);

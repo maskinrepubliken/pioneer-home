@@ -4,9 +4,9 @@
  * and GET /api/program (models, heating curves, the plan and what following the schedule would cost).
  *
  * A room takes part when it has a `<room>_target` cell and thermostats with rated watts (devices.tsv). Its comfort
- * over time is the cell `<room>_now` (else `<room>_plan`) evaluated ahead with `heat_mode` = auto: the schedule
- * without its overlap, since the planner decides itself when to warm up. The comparison follows `<room>_scheduled`
- * (else the comfort). Tuning lives in cells.tsv: `program_slack` (°C the room may be short, default 1),
+ * for each quarter comes from the modes in force: the week schedule (week.tsv) in heat_mode program, else the
+ * mode chosen; the warmest of the modes' `<room>_<mode>` temperatures, less `heat_overlap_slack` in a transition
+ * (two modes at once), never below `heat_cold`. The comparison holds that comfort exactly, without planning. Tuning lives in cells.tsv: `program_slack` (°C the room may be short, default 1),
  * `program_preheat` (°C above the coming comfort it may be warmed, default 1.5) and `program_shortfall_cost`
  * (kr per °C·h short, default 0.5); `heat_cold` is a comfort that is never undercut.
  *
@@ -20,6 +20,7 @@ import type { Engine } from '../core/engine.js';
 import { comfortBand, followSetpoints, planRoom, type Plan, type PlanInput } from '../core/planner.js';
 import { buildSamples, fitModel, holdingPower, iconOctas, solarElevation, sunFactor, usable, type Points, type RoomModel } from '../core/thermal.js';
 import type { Value } from '../formula/values.js';
+import { scheduleAt } from '../core/schedule.js';
 import { forecastAt, type ForecastService } from './forecast.js';
 import type { HistoryQuery } from './pocketbase.js';
 import type { PriceService } from './prices.js';
@@ -217,7 +218,12 @@ export class ProgramService {
       const slack = this.num('program_slack', 1);
       const preheat = this.num('program_preheat', 1.5);
       const shortfallCost = this.num('program_shortfall_cost', 0.5);
-      const auto: Record<string, Value> = { heat_mode: 'auto' };
+      // the modes each quarter asks for: the week schedule in heat_mode program (and in manual, for the plan shown),
+      // or the mode chosen
+      const heatMode = this.engine.store.has('heat_mode') ? this.engine.store.get('heat_mode') : null;
+      const fixed = typeof heatMode === 'string' && cfg.week.modes.includes(heatMode) ? heatMode : null;
+      const modesAt = times.map((t) => (fixed ? [fixed] : scheduleAt(cfg.week, t + QUARTER_MS / 2, cfg.timezone)));
+      const overlapSlack = this.num('heat_overlap_slack', 1);
       const out: ProgramRoom[] = [];
       const inputs: { cell: string; value: Value }[] = [];
       for (const room of rooms) {
@@ -225,10 +231,15 @@ export class ProgramService {
         const model = saved?.model ?? null;
         const heaters = room.heaters.filter((h) => this.engine.store.get(`${h.id}.available`) !== false);
         const temps = heaters.map((h) => this.engine.store.get(`${h.id}.temperature`)).filter((v): v is number => typeof v === 'number');
-        const comfortCell = cfg.cells.has(`${room.id}_now`) ? `${room.id}_now` : `${room.id}_plan`;
-        const scheduleCell = cfg.cells.has(`${room.id}_scheduled`) ? `${room.id}_scheduled` : comfortCell;
-        const comfort = times.map((t) => this.engine.evaluateAt(comfortCell, t + QUARTER_MS / 2, auto));
-        const cold = this.num('heat_cold', Math.min(...comfort.filter((c): c is number => typeof c === 'number')));
+        // comfort: the warmest of the modes in force (<room>_<mode>), less heat_overlap_slack in a transition, never below heat_cold
+        const modeTemp = (m: string) => this.engine.store.has(`${room.id}_${m}`) ? this.engine.store.get(`${room.id}_${m}`) : null;
+        const allTemps = cfg.week.modes.map(modeTemp).filter((v): v is number => typeof v === 'number');
+        const cold = this.num('heat_cold', allTemps.length ? Math.min(...allTemps) : 12);
+        const comfort: (number | null)[] = modesAt.map((modes) => {
+          const temps = modes.map(modeTemp).filter((v): v is number => typeof v === 'number');
+          if (!temps.length) return modes.length ? null : cold;
+          return Math.max(cold, Math.max(...temps) - (modes.length > 1 ? overlapSlack : 0));
+        });
         const curveTemp = Math.max(...comfort.filter((c): c is number => typeof c === 'number'), 18);
         const entry: ProgramRoom = {
           id: room.id,
@@ -247,7 +258,7 @@ export class ProgramService {
         if (!model) entry.note = 'för lite historik för en modell';
         else if (!usable(model)) entry.note = 'modellen är för osäker att styra efter, så schemat gäller';
         else if (!temps.length) entry.note = 'termostaterna rapporterar ingen temperatur';
-        else if (comfort.some((c) => typeof c !== 'number')) entry.note = `${comfortCell} går inte att räkna fram`;
+        else if (comfort.some((c) => typeof c !== 'number')) entry.note = `${room.id}_<läge> saknas för något läge i schemat`;
         else {
           const t0 = temps.reduce((s, v) => s + v, 0) / temps.length;
           const maxKw = heaters.reduce((s, h) => s + h.kw, 0);
@@ -255,11 +266,8 @@ export class ProgramService {
           const input: PlanInput[] = env.map((e, k) => ({ ...e, comfort: comfort[k] as number, ...band[k]! }));
           const opts = { stepH: STEP_H, maxKw, shortfallCost };
           entry.plan = planRoom(model, t0, input, opts);
-          const scheduled = times.map((t, k) => {
-            const v = this.engine.evaluateAt(scheduleCell, t + QUARTER_MS / 2, auto);
-            return typeof v === 'number' ? v : (comfort[k] as number);
-          });
-          entry.schedule = followSetpoints(model, t0, input.map((s, k) => ({ ...s, setpoint: scheduled[k]! })), opts);
+          // the comparison: the same comfort held exactly, without planning
+          entry.schedule = followSetpoints(model, t0, input.map((s) => ({ ...s, setpoint: s.comfort })), opts);
           entry.setpoint = entry.plan.steps[0]?.setpoint ?? null;
         }
         inputs.push({ cell: `program.${room.id}`, value: entry.setpoint });

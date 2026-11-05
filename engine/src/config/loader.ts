@@ -9,6 +9,7 @@ import { formula } from '../formula/index.js';
 import { FormulaError, type Ast } from '../formula/api.js';
 import { parseDuration, parseLiteral, parseTimeOfDay, typeOf, type Value, type ValueType } from '../formula/values.js';
 import { getKind, KINDS, parseTargets } from '../core/kinds.js';
+import { WEEKDAY_IDS, parseModes, slotKey, type WeekSchedule } from '../core/schedule.js';
 import { ActionParseError, actionFormulas, parseActions } from './actions.js';
 import type { ConfigError } from './errors.js';
 import {
@@ -41,7 +42,7 @@ export type LoadResult = { ok: true; config: Config; warnings: ConfigError[] } |
 const ID_RE = /^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)*$/;
 const DAY_NAMES: Record<string, number> = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7 };
 
-export const TABLE_FILES = ['settings', 'rooms', 'devices', 'cells', 'scenes', 'rules', 'sequences', 'alerts', 'history'] as const;
+export const TABLE_FILES = ['settings', 'rooms', 'devices', 'cells', 'scenes', 'rules', 'sequences', 'alerts', 'history', 'week'] as const;
 /** Older layouts: still read when present so a checkout can be migrated one table at a time. */
 const LEGACY_FILES = ['vars', 'derived'] as const;
 
@@ -164,6 +165,45 @@ export function loadConfig(dir: string): LoadResult {
   }
   // The program planner's setpoint for each room (adapters/program.ts): NULL until it has a plan for the room.
   for (const id of rooms.keys()) cells.set(`program.${id}`, { id: `program.${id}`, type: 'number', kind: 'system', settable: false, transient: false });
+
+  // ---- week: the heating modes of each hour of the week (week.tsv) --------------------------
+  // Columns `hour` (0-23) and mon..sun; a cell holds one mode id, or several (a transition), or nothing.
+  // Every mode in it, and every <mode> of a cell named heat_use_<mode>, gets the system cell week.<mode>.
+  const schedule: WeekSchedule = { modes: [], slots: new Map() };
+  {
+    const tb = t('week');
+    const addMode = (m: string) => {
+      if (!schedule.modes.includes(m)) schedule.modes.push(m);
+    };
+    if (tb.rows.length) errors.push(...requireColumns(tb, ['hour']));
+    const seen = new Set<number>();
+    for (const row of tb.rows) {
+      const raw = (row.cells['hour'] ?? '').trim();
+      const hour = /^\d{1,2}$/.test(raw) ? Number(raw) : NaN;
+      if (!(hour >= 0 && hour <= 23)) {
+        err(tb, row, `bad hour "${raw}" (0-23)`, 'hour');
+        continue;
+      }
+      if (seen.has(hour)) {
+        err(tb, row, `hour ${hour} is listed more than once`, 'hour');
+        continue;
+      }
+      seen.add(hour);
+      WEEKDAY_IDS.forEach((day, i) => {
+        const modes = parseModes(row.cells[day] ?? '');
+        for (const m of modes) {
+          if (!/^[a-z_][a-z0-9_]*$/.test(m)) err(tb, row, `bad mode "${m}" (lowercase ASCII letters, digits and _)`, day);
+          else addMode(m);
+        }
+        if (modes.length) schedule.slots.set(slotKey(i + 1, hour), modes);
+      });
+    }
+    for (const row of t('cells').rows) {
+      const m = /^heat_use_([a-z_][a-z0-9_]*)$/.exec(row.cells['id'] ?? '');
+      if (m) addMode(m[1]!);
+    }
+    for (const m of schedule.modes) cells.set(`week.${m}`, { id: `week.${m}`, type: 'boolean', kind: 'system', settable: false, transient: false });
+  }
 
   // ---- devices ---------------------------------------------------------------------------
   const devices = new Map<string, DeviceDef>();
@@ -696,7 +736,7 @@ export function loadConfig(dir: string): LoadResult {
   return {
     ok: true,
     warnings,
-    config: { dir, settings, rooms, devices, vars, derived, scenes, rules, sequences, alerts, history, cells, aliases, sinceTargets, timezone, latitude, longitude },
+    config: { dir, settings, rooms, devices, vars, derived, scenes, rules, sequences, alerts, history, cells, aliases, sinceTargets, timezone, latitude, longitude, week: schedule },
   };
 }
 

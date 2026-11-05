@@ -5,6 +5,7 @@
 import type { Ast } from '../formula/api.js';
 import type { Duration, Value, ValueType } from '../formula/values.js';
 import type { KindSpec } from '../core/kinds.js';
+import type { WeekSchedule } from '../core/schedule.js';
 
 export interface Located {
   file: string;
@@ -208,6 +209,8 @@ export interface Config {
   latitude: number;
   longitude: number;
   alerts: AlertDef[];
+  /** week.tsv: the heating modes of each hour of the week */
+  week: WeekSchedule;
 }
 
 /** System cells every configuration has, fed by the engine itself. */

@@ -1,8 +1,8 @@
 <script lang="ts">
   /**
-   * Program: the heating planned by price and weather (engine/src/adapters/program.ts, GET /api/program). Whether the
-   * program steers (heat_mode program) with the switch to and from it, what the coming hours cost with the program
-   * and with the schedule, the plan hour by hour (the same strips as Värme's history), each room's planned
+   * Program: the heating planned by price and weather (engine/src/adapters/program.ts, GET /api/program) within the
+   * comfort of the week schedule (week.tsv, edited here) or of the mode chosen. What it steers by now, the week
+   * schedule to paint, what the coming hours cost with the planning and without it, the plan hour by hour (the same strips as Värme's history), each room's planned
    * temperature against its comfort, and each room's learnt heating curve with what the model says in words.
    */
   import { onMount } from 'svelte';
@@ -12,7 +12,8 @@
   import { api, ApiError, type ProgramRoom, type ProgramState } from '../lib/api';
   import { kr } from '../lib/cost';
   import { formatQuantity, timeOnly } from '../lib/format';
-  import { AUTO, MANUAL, MANUAL_NAME, MANUAL_UNTIL_SWITCH, PROGRAM, heatModes } from '../lib/heat';
+  import WeekEditor from '../components/WeekEditor.svelte';
+  import { MANUAL, PROGRAM, heatModes, modeName } from '../lib/heat';
   import type { Series } from '../lib/history';
   import { home, sendAction } from '../lib/state.svelte';
 
@@ -42,14 +43,11 @@
   });
 
   const mode = $derived(typeof home.cells['heat_mode']?.value === 'string' ? (home.cells['heat_mode']!.value as string) : null);
-  const steering = $derived(mode === PROGRAM);
   const modes = $derived(heatModes(Object.values(home.cells)));
-  const modeName = (m: string | null) =>
-    m === null ? '—' : m === AUTO ? 'Schema' : m === MANUAL || m === MANUAL_UNTIL_SWITCH ? MANUAL_NAME : (modes.find((x) => x.id === m)?.name ?? m);
   let switching = $state(false);
-  async function setMode(m: string) {
+  async function chooseProgram() {
     switching = true;
-    await sendAction(`set heat_mode ${m}`);
+    await sendAction(`set heat_mode ${PROGRAM}`);
     switching = false;
   }
 
@@ -87,7 +85,7 @@
     const end = (t: number) => (t + 900_000) / 1000;
     return [
       { label: 'Programmet', points: r.plan!.steps.map((s) => [end(s.t), s.tend] as [number, number]) },
-      { label: 'Med schemat', points: r.schedule!.steps.map((s) => [end(s.t), s.tend] as [number, number]) },
+      { label: 'Utan planering', points: r.schedule!.steps.map((s) => [end(s.t), s.tend] as [number, number]) },
       { label: 'Komfort', points: r.plan!.steps.map((s) => [s.t / 1000, s.comfort] as [number, number]), stepped: true, dash: true },
       { label: 'Lägst', points: r.plan!.steps.map((s) => [s.t / 1000, s.floor] as [number, number]), stepped: true, dash: true },
     ];
@@ -126,24 +124,25 @@
 
 <section class="hero" aria-labelledby="h-program">
   <p class="eyebrow" id="h-program">Program</p>
-  <h1 class="title">{steering ? 'Styr värmen' : 'Styr inte'}</h1>
+  <h1 class="title">{mode === MANUAL ? 'Styr inte' : 'Styr värmen'}</h1>
   <p class="status">
-    {#if steering}
-      Programmet planerar värmen efter elpris och väder och håller schemats komfort, högst {num1(Number(home.cells['program_slack']?.value ?? 1))} °C under när
-      elen är dyr. Byt läge på Värme eller här för att ta över.
+    {#if mode === PROGRAM}
+      Efter veckoschemat nedan: värmer när elen är billig och håller lägenas temperaturer, högst
+      {num1(Number(home.cells['program_slack']?.value ?? 1))} °C under när elen är dyr.
+    {:else if mode === MANUAL}
+      Målen är ändrade för hand (Manuellt). Programmet räknar fram en plan men styr inte förrän du väljer Program eller ett läge.
     {:else}
-      Programmet räknar fram en plan men styr inte: läget är {modeName(mode)}.
-      {#if mode === MANUAL_UNTIL_SWITCH && home.cells['heat_resume']?.value === PROGRAM}Programmet tar över vid schemats nästa byte.{/if}
+      Inom läget {modeName(mode, modes)} hela tiden (valt på startsidan): värmer när elen är billig.
     {/if}
   </p>
-  <div class="actions">
-    {#if steering}
-      <button class="btn choice" disabled={switching} onclick={() => setMode(AUTO)}>Tillbaka till Schema</button>
-    {:else}
-      <button class="btn choice chosen" disabled={switching} onclick={() => setMode(PROGRAM)}>Låt programmet styra</button>
-    {/if}
-  </div>
+  {#if mode !== PROGRAM}
+    <div class="actions">
+      <button class="btn choice chosen" disabled={switching} onclick={chooseProgram}>Följ veckoschemat</button>
+    </div>
+  {/if}
 </section>
+
+<section class="panel"><WeekEditor /></section>
 
 {#if error}
   <div class="state" role="alert">{error}</div>
@@ -167,7 +166,7 @@
           <span class="sub">{num1(planEnergy)} kWh</span>
         </div>
         <div class="total">
-          <span class="label">Med schemat</span>
+          <span class="label">Utan planering</span>
           <b class="big">{kr(scheduleCost)}</b>
           <span class="sub">{num1(scheduleEnergy)} kWh</span>
         </div>
@@ -189,7 +188,7 @@
     <section class="panel room" aria-labelledby="h-{r.id}">
       <header class="head">
         <h2 id="h-{r.id}">{r.name}</h2>
-        {#if r.setpoint !== null}<span class="pill" class:on={steering}>{steering ? 'mål nu' : 'skulle ha'} {formatQuantity(r.setpoint, '°C')}</span>{/if}
+        {#if r.setpoint !== null}<span class="pill" class:on={mode !== MANUAL}>{mode !== MANUAL ? 'mål nu' : 'skulle ha'} {formatQuantity(r.setpoint, '°C')}</span>{/if}
       </header>
       {#if r.note}<p class="aside">Ingen plan: {r.note}.</p>{/if}
       {#if r.plan && r.schedule}
@@ -202,7 +201,7 @@
           height={narrow ? 160 : 200}
         />
         <p class="small faint">
-          Programmet: {kr(r.plan.cost)}, saknar {num1(r.plan.shortfall)} grad·timmar. Med schemat: {kr(r.schedule.cost)}, saknar {num1(r.schedule.shortfall)}.
+          Med planering: {kr(r.plan.cost)}, saknar {num1(r.plan.shortfall)} grad·timmar. Utan: {kr(r.schedule.cost)}, saknar {num1(r.schedule.shortfall)}.
         </p>
       {/if}
       {#if r.model && r.curve.length}

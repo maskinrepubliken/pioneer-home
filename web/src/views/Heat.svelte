@@ -11,7 +11,8 @@
   import { api, ApiError, type PriceSlot } from '../lib/api';
   import { applianceOrder, computeCosts, costPerBucket, isUnreachable, kr, kwhPerBucket, pricePerBucket, type CostResult } from '../lib/cost';
   import { formatQuantity, roomName, timeOnly } from '../lib/format';
-  import { AUTO, MANUAL, MANUAL_NAME, MANUAL_UNTIL_SWITCH, PROGRAM, PROGRAM_NAME, cellNotes, heatModes, heatRooms, heatState, targetActions } from '../lib/heat';
+  import { heatRooms, targetActions } from '../lib/heat';
+  import ModePicker from '../components/ModePicker.svelte';
   import { meanSeries, namesFromTables, roomOfLocation, seriesBy, sourceId, sourceName, ts, num, type Rec, type Series } from '../lib/history';
   import { buildLive, excludedReadings } from '../lib/live';
   import { home, sendAction } from '../lib/state.svelte';
@@ -20,23 +21,9 @@
   const cells = $derived(Object.values(home.cells));
   const kinds = $derived(Object.fromEntries((home.tables?.devices ?? []).map((d) => [d.id, d.kind])) as Record<string, string>);
   const layout = $derived(buildLive(cells, kinds, home.rooms));
-  const modes = $derived(heatModes(cells));
-  const heat = $derived(heatState(home.cells));
   const rooms = $derived(heatRooms(layout, home.cells, home.rooms));
   const heated = $derived(rooms.filter((r) => r.heated));
-  const notes = $derived(cellNotes(home.tables?.files ?? {}));
-  const modeName = (id: string | null) => (id === null ? '—' : id === MANUAL ? MANUAL_NAME : id === PROGRAM ? PROGRAM_NAME : (modes.find((m) => m.id === id)?.name ?? id));
-  /** a mode chosen by hand (not the schedule); `manual` = targets changed by hand */
-  const byHand = $derived(heat.mode !== null && heat.mode !== AUTO && heat.mode !== PROGRAM);
-  const resumesProgram = $derived(home.cells['heat_resume']?.value === PROGRAM);
 
-  let choosing = $state<string | null>(null);
-  async function choose(id: string) {
-    if (choosing || id === heat.mode) return;
-    choosing = id;
-    await sendAction(`set heat_mode ${id}`);
-    choosing = null;
-  }
 
   /** Room target stepper: ±0.5, rapid taps sent as one `set <room>_target 19.5` (as VarRow does), after `set heat_mode manual`. */
   let pending = $state<Record<string, number>>({});
@@ -197,55 +184,7 @@
   });
 </script>
 
-<section class="hero" aria-labelledby="h-mode">
-  <div class="hero-top">
-    <p class="eyebrow" id="h-mode">Värmeläge</p>
-    <h1 class="mode">{modeName(heat.active)}</h1>
-    <p class="status" aria-live="polite">
-      {#if !home.loaded}
-        laddar…
-      {:else if heat.mode === null}
-        Inga värmelägen i tabellerna än (heat_mode i Celler).
-      {:else if heat.mode === MANUAL}
-        Ändrat för hand. Gäller tills du väljer Schema eller ett läge.
-      {:else if heat.mode === MANUAL_UNTIL_SWITCH}
-        Ändrat på en termostat. {resumesProgram ? 'Programmet' : 'Schemat'} tar över igen vid nästa byte; tryck Manuellt för att behålla ändringen.
-      {:else if heat.mode === PROGRAM}
-        Programmet styr: värmer när elen är billig, inom schemats komfort. <a href="#/program">Se planen</a>.
-      {:else if byHand}
-        Valt för hand. Gäller tills du väljer Schema.
-      {:else}
-        Följer schemat{#if notes['heat_sched_now']}: {notes['heat_sched_now']}{/if}.
-      {/if}
-    </p>
-  </div>
-  {#if heat.mode !== null}
-    <div class="choices" role="radiogroup" aria-label="Välj värmeläge">
-      {#each [{ id: AUTO, name: 'Schema', inUse: false }, ...modes, { id: MANUAL, name: MANUAL_NAME, inUse: false }] as m (m.id)}
-        {@const chosen = heat.mode === m.id || (m.id === MANUAL && heat.mode === MANUAL_UNTIL_SWITCH)}
-        <button
-          class="choice"
-          class:chosen
-          role="radio"
-          aria-checked={chosen}
-          disabled={choosing !== null}
-          onclick={() => choose(m.id)}
-        >
-          <span class="hole" class:filled={m.id === AUTO || m.id === MANUAL ? chosen : m.inUse} aria-hidden="true"></span>
-          <span class="cname">{m.name}</span>
-          {#if chosen}<span class="tag">vald</span>{/if}
-        </button>
-      {/each}
-    </div>
-    {#if !byHand && modes.filter((m) => m.inUse).length > 1}
-      {@const slack = typeof home.cells['heat_overlap_slack']?.value === 'number' ? (home.cells['heat_overlap_slack']?.value as number) : 0}
-      <p class="overlap">
-        Övergång: {modes.filter((m) => m.inUse).map((m) => m.name).join(' och ')} räknas båda just nu, varje rum får det varmaste{#if slack > 0}, men
-          {slack === 1 ? 'en grad' : `${slack} grader`} under räcker{/if}.
-      </p>
-    {/if}
-  {/if}
-</section>
+<ModePicker />
 
 <section class="panel roomlist" aria-label="Rummen">
   {#snippet row(r: (typeof rooms)[number])}
@@ -320,94 +259,6 @@
 </section>
 
 <style>
-  /* The mode block: a forest surface, the one big poster line of the page. Compact: this page lives on a phone. */
-  .hero {
-    background: var(--surface-forest);
-    color: var(--on-dark);
-    border-radius: var(--radius-panel);
-    padding: var(--space-5);
-    margin-bottom: var(--space-4);
-  }
-  .hero-top {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    column-gap: var(--space-4);
-  }
-  .eyebrow {
-    flex-basis: 100%;
-    font-family: var(--font-display);
-    font-size: 12px;
-    line-height: 1.2;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: var(--ochre);
-    margin: 0;
-  }
-  .mode {
-    font-family: var(--font-display);
-    font-weight: 900;
-    font-size: clamp(34px, 7vw, 60px);
-    line-height: 1;
-    letter-spacing: -0.01em;
-    text-transform: uppercase;
-    margin: var(--space-1) 0 0;
-  }
-  .status {
-    margin: var(--space-1) 0 0;
-    font-size: 14px;
-    line-height: 1.45;
-    max-width: 60ch;
-  }
-  .choices {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
-    gap: var(--space-1);
-    margin-top: var(--space-4);
-    max-width: 680px;
-  }
-  .choice {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    min-height: 40px;
-    padding: 6px 8px;
-    border-radius: var(--radius-pill);
-    border: 1px solid var(--on-dark);
-    background: var(--surface-forest);
-    color: var(--on-dark);
-    font-family: var(--font-ui);
-    font-size: 15px;
-    font-weight: 600;
-    line-height: 1;
-    cursor: pointer;
-    min-width: 0;
-  }
-  .choice:hover {
-    background: var(--surface-ink);
-  }
-  .choice:focus-visible {
-    outline: 2px solid var(--focus-on-dark);
-    outline-offset: 2px;
-  }
-  .choice.chosen,
-  .choice.chosen:hover {
-    background: var(--ochre);
-    border-color: var(--ochre);
-    color: var(--on-ochre);
-  }
-  .choice:disabled {
-    cursor: default;
-  }
-  .tag {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 400;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-  }
   /* A punch-card hole: filled = counts now, empty = not. */
   .hole {
     width: 10px;
@@ -418,19 +269,6 @@
   }
   .hole.filled {
     background: currentColor;
-  }
-  .hero .hole.filled {
-    background: var(--ochre);
-    border-color: var(--ochre);
-  }
-  .hero .choice.chosen .hole.filled {
-    background: var(--on-ochre);
-    border-color: var(--on-ochre);
-  }
-  .overlap {
-    margin: var(--space-2) 0 0;
-    font-size: 13px;
-    line-height: 1.45;
   }
 
   /* The rooms: one line each, temperature and target in columns, so they line up and a phone shows them all. */
@@ -611,14 +449,9 @@
   }
   /* Phones: the hero and the panels run to the screen edge minus a small gutter, everything one size down. */
   @media (max-width: 640px) {
-    .hero,
     .panel {
       margin-left: calc(-1 * var(--space-2));
       margin-right: calc(-1 * var(--space-2));
-    }
-    .hero {
-      padding: var(--space-4);
-      border-radius: var(--radius-card);
     }
     .panel {
       padding: var(--space-4) var(--space-3);
@@ -648,18 +481,6 @@
     }
     .sp .value {
       font-size: 14px;
-    }
-    .tag {
-      display: none;
-    }
-    /* five choices: Schema, the modes and Manuellt in two rows of three */
-    .choices {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-    .choice {
-      font-size: 14px;
-      gap: 5px;
-      padding: 6px 4px;
     }
     .total .big {
       font-size: 24px;
