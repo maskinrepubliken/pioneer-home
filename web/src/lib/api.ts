@@ -176,10 +176,20 @@ export interface RoomModel {
   c: number;
   d: number;
   n: number;
-  r2: number;
   stepS: number;
+  /** °C, root mean square over the fit's windows */
+  rmse: number;
+  /** length of the fit's windows, hours */
+  horizonH: number;
   from: number;
   to: number;
+}
+/** The model run over the last days against the measured temperature. */
+export interface ModelCheck {
+  rmse: number;
+  max: number;
+  /** epoch ms, measured °C, model °C */
+  points: [number, number, number][];
 }
 export interface PlannedStep {
   /** epoch ms */
@@ -211,6 +221,7 @@ export interface ProgramRoom {
   curve: { tout: number; kw: number }[];
   observed: { tout: number; kw: number }[];
   curveTemp: number;
+  check: ModelCheck | null;
   plan: Plan | null;
   /** the thermostats' setpoint per quarter: the plan's, or the comfort without a plan */
   setpoints: { t: number; setpoint: number }[];
@@ -220,8 +231,12 @@ export interface ProgramRoom {
 export interface ProgramState {
   at: number;
   fittedAt: number | null;
+  /** what the models learn from: first day (epoch ms), half-life (days), program_learn_since, the error limit (°C) */
+  learn: { from: number; halfLifeDays: number; since: string | null; maxError: number };
   forecast: { created: number; fetched: number } | null;
   pricesUntil: number | null;
+  /** every quarter ahead, planned or not */
+  ahead: { t: number; tout: number; price: number }[];
   rooms: ProgramRoom[];
   errors: string[];
 }

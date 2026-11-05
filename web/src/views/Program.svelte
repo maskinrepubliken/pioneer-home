@@ -62,14 +62,11 @@
     const t0 = planned[0]?.plan?.steps[0]?.t ?? 0;
     return planned.reduce((n, r) => n + r.plan!.steps.filter((s) => s.t < t0 + 86_400_000).reduce((m, s) => m + s.cost, 0), 0);
   });
-  const horizonEnd = $derived.by(() => {
-    const steps = planned[0]?.plan?.steps ?? [];
-    return steps.length ? steps[steps.length - 1]!.t + 900_000 : null;
-  });
 
   // ---- the plan per hour, for the strips: outdoor, price, planned kW and cost per room -------------------------
   const hourly = $derived.by(() => {
-    const steps0 = planned[0]?.plan?.steps ?? [];
+    // the quarters ahead with their forecast and price, whether any room is planned or not
+    const steps0 = program?.ahead ?? [];
     const hourOf = (t: number) => Math.floor(t / 3_600_000) * 3600;
     const hours = [...new Set(steps0.map((s) => hourOf(s.t)))];
     const mean = (vals: number[]) => (vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null);
@@ -156,10 +153,33 @@
     if (rise > 0) out.push(`Med full värme (${num1(maxKw)} kW) stiger det ${num2(rise)} °C i timmen vid 0 °C ute.`);
     else out.push(`Full värme (${num1(maxKw)} kW) räcker inte för att höja temperaturen vid 0 °C ute.`);
     if (m.c > 0.05) out.push(`Solen ger upp till ${num1(m.c)} °C i timmen en klar dag.`);
-    const sure = m.r2 >= 0.15 ? 'god' : 'låg';
-    out.push(`Lärt av ${m.n} timmar; säkerheten är ${sure} (förklarar ${Math.round(m.r2 * 100)} % av timförändringarna, givarna visar bara tiondelar).`);
+    out.push(`Lärt av ${Math.round((m.n * m.stepS) / 3600)} timmar: modellen körs ${m.horizonH} timmar framåt från uppmätt temperatur och missar då i snitt ${num2(m.rmse)} °C.`);
     return out;
   }
+
+  /** The model against the measured temperature over the last two days. */
+  function checkSeries(r: ProgramRoom): Series[] {
+    const pts = r.check!.points;
+    return [
+      { label: 'Uppmätt', points: pts.map((p) => [p[0] / 1000, p[1]] as [number, number]) },
+      { label: 'Modellen', points: pts.map((p) => [p[0] / 1000, p[2]] as [number, number]), dash: true },
+    ];
+  }
+  const trustedText = (r: ProgramRoom) =>
+    r.usable ? 'Inom gränsen: programmet planerar och förvärmer efter modellen.' : 'Utanför gränsen: programmet förvärmer inte, lägenas temperaturer gäller.';
+
+  let learnBusy = $state(false);
+  async function learnFrom(date: string | null) {
+    learnBusy = true;
+    await sendAction(`set program_learn_since ${date ?? 'NULL'}`);
+    learnBusy = false;
+    setTimeout(() => void load(), 4000);
+  }
+  const today = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  const dateOnly = (ms: number) => new Date(ms).toLocaleDateString('sv-SE', { day: 'numeric', month: 'long' });
 </script>
 
 <section class="hero" aria-labelledby="h-program">
@@ -193,12 +213,15 @@
     <div class="state" role="alert">{program.errors.join(' · ')}</div>
   {/if}
 
-  {#if planned.length}
+  {#if program.ahead.length}
     <section class="panel" aria-labelledby="h-plan">
       <header class="head">
-        <h2 id="h-plan">Kommande {horizonEnd ? Math.round((horizonEnd - planned[0]!.plan!.steps[0]!.t) / 3_600_000) : 0} timmarna</h2>
+        <h2 id="h-plan">Kommande {Math.round((program.ahead.length * 900_000) / 3_600_000)} timmarna</h2>
         <span class="faint small">planerad {timeOnly(program.at, false)}</span>
       </header>
+      {#if !planned.length}
+        <p class="aside">Ingen kostnadsprognos: inget rum har en modell som programmet litar på än (se Modellen mot verkligheten nedan). Termostaterna följer lägenas temperaturer.</p>
+      {:else}
       <div class="totals">
         <div class="total">
           <span class="label">Kostnad</span>
@@ -216,6 +239,7 @@
           <span class="sub">per kWh, med moms och påslag</span>
         </div>
       </div>
+      {/if}
       <HeatStrips hours={hourly.hours} outdoor={hourly.outdoor} price={hourly.price} sources={hourly.sources} modes={hourly.modes} targets={hourly.targets} ahead />
       <p class="note">
         Prognos från SMHI{#if program.forecast} ({hhmm(program.forecast.created)}){/if}. Elpriser publicerade till
@@ -252,6 +276,25 @@
           </ol>
         </div>
       {/if}
+      {#if r.check}
+        <div class="check">
+          <h3>Modellen mot verkligheten</h3>
+          <Chart
+            since={r.check.points[0]![0] / 1000}
+            until={r.check.points[r.check.points.length - 1]![0] / 1000}
+            title="Senaste {Math.round((r.check.points[r.check.points.length - 1]![0] - r.check.points[0]![0]) / 3_600_000)} timmarna"
+            unit="°C"
+            series={checkSeries(r)}
+            height={narrow ? 140 : 170}
+          />
+          <p class="small">
+            Modellen körs {r.model?.horizonH ?? 8} timmar i taget från uppmätt temperatur med den värme och det väder som
+            var. Senaste veckan missar den i snitt <b class="value">{num2(r.check.rmse)} °C</b> och som mest
+            <b class="value">{num1(r.check.max)} °C</b> (gränserna {num1(program.learn.maxError)} och {num1(3 * program.learn.maxError)} °C).
+            {trustedText(r)}
+          </p>
+        </div>
+      {/if}
       {#if r.model && r.curve.length}
         <div class="model">
           <CurveChart title="Värmekurva för {formatQuantity(r.curveTemp, '°C')}" curve={r.curve} observed={r.observed} />
@@ -262,9 +305,19 @@
       {/if}
     </section>
   {/each}
-  {#if program.fittedAt}
-    <p class="note">Modellerna lärs om var sjätte timme av de senaste 28 dygnen; senast {dayTime(program.fittedAt)}. Planen görs om varje kvart från temperaturen just då.</p>
-  {/if}
+  <section class="panel learn" aria-labelledby="h-learn">
+    <h2 id="h-learn">Inlärning</h2>
+    <p class="small">
+      Modellerna lärs om varje timme av historiken sedan {program.learn.from ? dateOnly(program.learn.from) : '—'}{program.learn.since ? ' (lär om från det datumet)' : ', de senaste 28 dygnen'};
+      en dag som är {num1(program.learn.halfLifeDays)} dygn gammal väger hälften, så ändringar i huset slår igenom.
+      {#if program.fittedAt}Senast {dayTime(program.fittedAt)}.{/if} Planen görs om varje kvart från temperaturen just då.
+    </p>
+    <p class="small">När huset har ändrats, till exempel efter ett renoveringssteg, kan modellen glömma allt före i dag. Den behöver sedan två dygn innan den planerar igen.</p>
+    <div class="learnactions">
+      <button class="btn" disabled={learnBusy || program.learn.since === today()} onclick={() => learnFrom(today())}>Lär om från i dag</button>
+      {#if program.learn.since}<button class="btn" disabled={learnBusy} onclick={() => learnFrom(null)}>Använd alla 28 dygn</button>{/if}
+    </div>
+  </section>
 {/if}
 
 <style>
@@ -407,6 +460,39 @@
   }
   .when {
     color: var(--ink-muted);
+  }
+  .check {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line);
+  }
+  .check h3 {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0 0 var(--space-2);
+  }
+  .check p {
+    margin: var(--space-2) 0 0;
+    line-height: 1.5;
+    max-width: 70ch;
+  }
+  .learn h2 {
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0 0 var(--space-2);
+  }
+  .learn p {
+    margin: 0 0 var(--space-2);
+    line-height: 1.5;
+    max-width: 70ch;
+  }
+  .learnactions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
   }
   .facts {
     margin: 0;

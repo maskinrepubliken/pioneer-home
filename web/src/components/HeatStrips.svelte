@@ -178,9 +178,9 @@
     ...(hasTargets ? [{ id: 'mal', title: 'Mål', unit: '°C', kind: 'targets', h: H.line + 8 }] : []),
     { id: 'ute', title: 'Ute', unit: '°C', kind: 'line', h: H.line },
     ...(hasSun ? [{ id: 'sol', title: 'Sol', unit: 'lx', kind: 'sun', h: H.line }] : []),
-    { id: 'kw', title: 'Värme', unit: 'kW', kind: 'kw', h: H.bars },
+    ...(sources.length ? [{ id: 'kw', title: 'Värme', unit: 'kW', kind: 'kw', h: H.bars }] : []),
     { id: 'pris', title: 'Elpris', unit: 'kr/kWh', kind: 'price', h: H.line },
-    { id: 'kr', title: 'Kostnad', unit: 'kr', kind: 'sek', h: H.bars },
+    ...(sources.length ? [{ id: 'kr', title: 'Kostnad', unit: 'kr', kind: 'sek', h: H.bars }] : []),
   ]);
   const lux = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `${Math.round(v).toLocaleString('sv-SE')} lx`);
   const kwTop = $derived(niceTop(Math.max(...kwTotal, 0)));
@@ -224,9 +224,9 @@
         {#each hasTargets ? targets : [] as t (t.label)}<div><dt>Mål {t.label}</dt><dd class="value">{targetIn(t, shown)}</dd></div>{/each}
         <div><dt>Ute</dt><dd class="value">{outdoor[shown] === null ? '—' : `${num1(outdoor[shown]!)} °C`}</dd></div>
         {#if hasSun}<div><dt>Sol</dt><dd class="value">{lux(sun[shown])}</dd></div>{/if}
-        <div><dt>Värme</dt><dd class="value">{num2(kwTotal[shown] ?? 0)} kW</dd></div>
+        {#if sources.length}<div><dt>Värme</dt><dd class="value">{num2(kwTotal[shown] ?? 0)} kW</dd></div>{/if}
         <div><dt>Elpris</dt><dd class="value">{price[shown] === null ? '—' : `${num2(price[shown]!)} kr/kWh`}</dd></div>
-        <div><dt>Kostnad</dt><dd class="value">{kr(sekTotal[shown] ?? 0)}</dd></div>
+        {#if sources.length}<div><dt>Kostnad</dt><dd class="value">{kr(sekTotal[shown] ?? 0)}</dd></div>{/if}
       </dl>
     {/if}
   </figcaption>
@@ -336,7 +336,7 @@
   {#if tableOpen}
     <div class="tablewrap">
       <table>
-        <thead><tr><th>Timme</th>{#if hasModes}<th>Läge</th>{/if}{#each hasTargets ? targets : [] as t (t.label)}<th>{t.label}</th>{/each}<th>Ute</th>{#if hasSun}<th>Sol</th>{/if}<th>Värme</th><th>Elpris</th><th>Kostnad</th></tr></thead>
+        <thead><tr><th>Timme</th>{#if hasModes}<th>Läge</th>{/if}{#each hasTargets ? targets : [] as t (t.label)}<th>{t.label}</th>{/each}<th>Ute</th>{#if hasSun}<th>Sol</th>{/if}{#if sources.length}<th>Värme</th>{/if}<th>Elpris</th>{#if sources.length}<th>Kostnad</th>{/if}</tr></thead>
         <tbody>
           {#each hours as t, i (t)}
             <tr>
@@ -345,9 +345,9 @@
               {#each hasTargets ? targets : [] as tg (tg.label)}<td class="value">{targetIn(tg, i)}</td>{/each}
               <td class="value">{outdoor[i] === null ? '—' : `${num1(outdoor[i]!)} °C`}</td>
               {#if hasSun}<td class="value">{lux(sun[i])}</td>{/if}
-              <td class="value">{num2(kwTotal[i] ?? 0)} kW</td>
+              {#if sources.length}<td class="value">{num2(kwTotal[i] ?? 0)} kW</td>{/if}
               <td class="value">{price[i] === null ? '—' : num2(price[i]!)}</td>
-              <td class="value">{kr(sekTotal[i] ?? 0)}</td>
+              {#if sources.length}<td class="value">{kr(sekTotal[i] ?? 0)}</td>{/if}
             </tr>
           {/each}
         </tbody>

@@ -20,6 +20,9 @@ heat_overlap_slack	1				heating	Övergången får sakna	grader under det varmast
 program_slack	1				heating	Programmet får sakna	°C under komforten som programmet får låta rummet ligga under dyra timmar
 program_preheat	1.5				heating	Programmet får förvärma	°C över den kommande komforten som programmet får värma i förväg när elen är billig
 program_shortfall_cost	0.5				heating	Kostnad för att sakna värme	kr per grad och timme under komforten: högre = programmet håller komforten oftare, lägre = sparar mer
+program_max_error	0.5				heating	Modellens felgräns	°C (kvadratiskt medelfel) som modellen får missa rummets temperatur med senaste veckan; missar den mer, eller som mest tre gånger det, förvärmer programmet inte och lägenas temperaturer gäller
+program_learn_halflife	7				heating	Inlärningens halveringstid	dygn: så gammal historik väger hälften när modellen lärs om, så att ändringar i huset slår igenom
+program_learn_since			string		heating	Lär om från	datum (ÅÅÅÅ-MM-DD) när huset ändrats, till exempel ett renoveringssteg: modellen glömmer allt före; tomt = de senaste 28 dygnen
 # --- held values
 heat_mode		program	string		heating	Värmeläge	program = veckoschemat (week.tsv) med programmets planering; home, sleep eller away = det läget hela tiden; manual = målen ändrade för hand, gäller tills program eller ett läge väljs
 living_room_target		21	number	living_room	heating	Måltemperatur	rummets måltemperatur; värmekällorna i rummet följer den

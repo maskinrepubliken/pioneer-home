@@ -13,9 +13,14 @@
  *   b     1/h: how fast the room loses heat to the outside (1/b = the time constant in hours)
  *   c     °C/h at full sun, d °C/h from everything else (people, appliances, neighbouring rooms)
  *
- * Fitted by least squares on fixed steps (an hour: the sensors' 0.1 °C resolution makes shorter steps mostly noise).
- * From it: the heating curve (power needed to hold a temperature at an outdoor temperature) and a simulator for
- * the planner (core/planner.ts).
+ * Fitted on the room's trajectory (`fitTrajectory`): from the measured temperature at the start of a window of some
+ * hours, the model is run forward with the heating, weather and sun that really were, and the coefficients are
+ * those that keep it closest to the measured temperatures over the whole window, recent days weighing more. A
+ * one-step fit (`fitModel`, least squares on hourly changes) drowns in the sensors' 0.1 °C steps and the noisy
+ * demand readings, and comes out too slow both ways: it then believes the room keeps heat it does not. The one-step
+ * fit is only the starting point. `backtest` runs the model over the last day the same way, to show how well it
+ * holds. From the model: the heating curve (power needed to hold a temperature at an outdoor temperature) and a
+ * simulator for the planner (core/planner.ts).
  */
 
 export interface RoomModel {
@@ -23,10 +28,13 @@ export interface RoomModel {
   b: number;
   c: number;
   d: number;
-  /** samples used, coefficient of determination of the fit, step length in seconds */
+  /** samples used, step length in seconds */
   n: number;
-  r2: number;
   stepS: number;
+  /** root mean square of model minus measured temperature over the fit's windows, °C (weighted by age) */
+  rmse: number;
+  /** length of the windows the trajectory was fitted on, hours */
+  horizonH: number;
   /** epoch ms of the first and last sample */
   from: number;
   to: number;
@@ -174,7 +182,7 @@ export function leastSquares(X: number[][], y: number[]): number[] | null {
   return M.map((r, i) => r[n]! / r[i]!);
 }
 
-/** Fits the model on consecutive samples (pairs exactly one step apart). Null without enough data. */
+/** One-step least squares on consecutive samples (pairs exactly one step apart): the trajectory fit's start. Null without enough data. */
 export function fitModel(samples: ThermalSample[], stepS: number, minPairs = 48): RoomModel | null {
   const X: number[][] = [];
   const y: number[] = [];
@@ -189,21 +197,132 @@ export function fitModel(samples: ThermalSample[], stepS: number, minPairs = 48)
   const beta = leastSquares(X, y);
   if (!beta) return null;
   const [a, b, c, d] = beta as [number, number, number, number];
-  const mean = y.reduce((s, v) => s + v, 0) / y.length;
-  const ssTot = y.reduce((s, v) => s + (v - mean) ** 2, 0);
-  const ssRes = y.reduce((s, v, k) => s + (v - (a * X[k]![0]! + b * X[k]![1]! + c * X[k]![2]! + d)) ** 2, 0);
-  return { a, b, c, d, n: X.length, r2: ssTot > 0 ? 1 - ssRes / ssTot : 0, stepS, from: samples[0]!.t * 1000, to: samples[samples.length - 1]!.t * 1000 };
+  const rmse = Math.sqrt(y.reduce((s, v, k) => s + (v - (a * X[k]![0]! + b * X[k]![1]! + c * X[k]![2]! + d)) ** 2, 0) / y.length);
+  return { a, b, c, d, n: X.length, stepS, rmse, horizonH: stepS / 3600, from: samples[0]!.t * 1000, to: samples[samples.length - 1]!.t * 1000 };
 }
 
-/** Below this share of the hourly changes explained, a model is too unsure to steer by (the schedule applies). */
-export const MIN_R2 = 0.15;
+export interface TrajectoryOptions {
+  stepS: number;
+  /** steps per window: how far the model is run from a measured start */
+  horizonSteps: number;
+  /** a sample this much older weighs half (seconds) */
+  halfLifeS: number;
+  /** epoch seconds the ages are counted from */
+  now: number;
+  /** fewest samples to fit on */
+  minSamples?: number;
+}
+
+/** The model run forward over consecutive samples from a measured start: temperatures after each step, until a gap. */
+export function simulate(m: RoomModel, samples: ThermalSample[], i0: number, steps: number, stepS: number): number[] {
+  const out: number[] = [];
+  let t = samples[i0]!.tin;
+  for (let k = i0; k < i0 + steps && k + 1 < samples.length; k++) {
+    if (samples[k + 1]!.t - samples[k]!.t !== stepS) break;
+    const s = samples[k]!;
+    t = step(m, t, s.tout, s.power, s.sun, stepS / 3600);
+    out.push(t);
+  }
+  return out;
+}
+
+/** Nelder–Mead minimisation (no derivatives), from a start point and the size of the first simplex per dimension. */
+export function nelderMead(f: (x: number[]) => number, x0: number[], scale: number[], iterations = 800): number[] {
+  const n = x0.length;
+  let pts = [x0, ...x0.map((_, i) => x0.map((v, j) => (i === j ? v + scale[i]! : v)))].map((x) => ({ x, f: f(x) }));
+  const at = (a: number[], b: number[], t: number) => a.map((v, i) => v + t * (b[i]! - v));
+  for (let it = 0; it < iterations; it++) {
+    pts.sort((p, q) => p.f - q.f);
+    if (Math.abs(pts[n]!.f - pts[0]!.f) < 1e-10 * (1 + Math.abs(pts[0]!.f))) break;
+    const centroid = x0.map((_, i) => pts.slice(0, n).reduce((s, p) => s + p.x[i]!, 0) / n);
+    const worst = pts[n]!;
+    const r = at(centroid, worst.x, -1);
+    const fr = f(r);
+    if (fr < pts[0]!.f) {
+      const e = at(centroid, worst.x, -2);
+      const fe = f(e);
+      pts[n] = fe < fr ? { x: e, f: fe } : { x: r, f: fr };
+    } else if (fr < pts[n - 1]!.f) pts[n] = { x: r, f: fr };
+    else {
+      const c = at(centroid, worst.x, fr < worst.f ? -0.5 : 0.5);
+      const fc = f(c);
+      if (fc < Math.min(fr, worst.f)) pts[n] = { x: c, f: fc };
+      else pts = pts.map((p, i) => (i === 0 ? p : { x: at(pts[0]!.x, p.x, 0.5), f: f(at(pts[0]!.x, p.x, 0.5)) }));
+    }
+  }
+  pts.sort((p, q) => p.f - q.f);
+  return pts[0]!.x;
+}
 
 /**
- * A model the planner can trust: heaters warm, the room loses heat, a time constant between 2 h and 2 weeks, and it
- * explains at least MIN_R2 of the hourly changes (the sensors' 0.1 °C steps keep this low even for a good model).
+ * Fits the model on trajectories: windows of `horizonSteps` start every half window wherever the samples run on
+ * without a gap; in each the model runs from the measured start and every step's miss counts, weighted by age
+ * (half-life). a and b are kept positive. Null without enough data or when nothing better than the start is found.
  */
-export function usable(m: RoomModel | null): m is RoomModel {
-  return !!m && m.a > 0.01 && m.b > 1 / 336 && m.b < 0.5 && m.r2 >= MIN_R2 && Number.isFinite(m.c) && Number.isFinite(m.d);
+export function fitTrajectory(samples: ThermalSample[], opts: TrajectoryOptions): RoomModel | null {
+  const { stepS, horizonSteps: H } = opts;
+  if (samples.length < (opts.minSamples ?? 4 * H)) return null;
+  const starts: number[] = [];
+  for (let i = 0; i + 1 < samples.length; i += Math.max(1, Math.floor(H / 2))) if (samples[i + 1]!.t - samples[i]!.t === stepS) starts.push(i);
+  if (!starts.length) return null;
+  const weight = (t: number) => Math.pow(0.5, (opts.now - t) / opts.halfLifeS);
+  const make = (x: number[]): RoomModel => ({ a: Math.exp(x[0]!), b: Math.exp(x[1]!), c: x[2]!, d: x[3]!, n: samples.length, stepS, rmse: 0, horizonH: (H * stepS) / 3600, from: samples[0]!.t * 1000, to: samples[samples.length - 1]!.t * 1000 });
+  const loss = (x: number[]) => {
+    const m = make(x);
+    let sum = 0;
+    let w = 0;
+    for (const i of starts) {
+      const sim = simulate(m, samples, i, H, stepS);
+      sim.forEach((v, k) => {
+        const q = samples[i + 1 + k]!;
+        const wq = weight(q.t);
+        sum += wq * (v - q.tin) ** 2;
+        w += wq;
+      });
+    }
+    return w > 0 ? sum / w : Infinity;
+  };
+  // start from the one-step fit when it is sensible, else from a slow, well-insulated room
+  const one = fitModel(samples, stepS, 8);
+  const x0 = one && one.a > 0.01 && one.b > 0.001 ? [Math.log(one.a), Math.log(one.b), one.c, one.d] : [Math.log(0.5), Math.log(0.05), 0, 0];
+  const x = nelderMead(loss, x0, [0.5, 0.5, 0.3, 0.1]);
+  const best = loss(x);
+  if (!Number.isFinite(best)) return null;
+  return { ...make(x), rmse: Math.sqrt(best) };
+}
+
+/** The model run over the samples in [from, to) (epoch s), restarted from the measured temperature every window. */
+export function backtest(m: RoomModel, samples: ThermalSample[], from: number, to: number, horizonSteps: number): { points: [number, number, number][]; rmse: number; max: number } | null {
+  const points: [number, number, number][] = [];
+  let i = samples.findIndex((s) => s.t >= from);
+  if (i < 0) return null;
+  while (i < samples.length && samples[i]!.t < to) {
+    const sim = simulate(m, samples, i, horizonSteps, m.stepS);
+    if (!sim.length) {
+      i++;
+      continue;
+    }
+    if (!points.length) points.push([samples[i]!.t, samples[i]!.tin, samples[i]!.tin]);
+    sim.forEach((v, k) => {
+      const q = samples[i + 1 + k]!;
+      if (q.t < to) points.push([q.t, q.tin, v]);
+    });
+    i += sim.length;
+  }
+  if (points.length < 8) return null;
+  const miss = points.map(([, meas, mod]) => mod - meas);
+  return { points, rmse: Math.sqrt(miss.reduce((s, v) => s + v * v, 0) / miss.length), max: Math.max(...miss.map(Math.abs)) };
+}
+
+/**
+ * A model the planner can trust: heaters warm, the room loses heat, a time constant between 2 h and 2 weeks, and run
+ * over the recent days from measured starts (`backtest`) it stays within `maxError` °C of the measured temperature
+ * (root mean square) and never misses by more than three times that (quiet days at a steady temperature would
+ * otherwise hide a miss on the few nights the room cools). Without a check, the fit's own error counts.
+ */
+export function usable(m: RoomModel | null, check: { rmse: number; max: number } | null = null, maxError = 0.5): m is RoomModel {
+  const ok = check ? check.rmse <= maxError && check.max <= 3 * maxError : !!m && m.rmse <= maxError;
+  return !!m && ok && m.a > 0.01 && m.b > 1 / 336 && m.b < 0.5 && Number.isFinite(m.c) && Number.isFinite(m.d);
 }
 
 /** The temperature after `hours` of constant conditions (exact solution of the linear model). */
