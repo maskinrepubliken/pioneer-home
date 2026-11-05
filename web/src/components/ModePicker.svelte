@@ -25,11 +25,13 @@
   const title = $derived(heat.mode === MANUAL ? MANUAL_NAME : active.length ? active.map((m) => m.name).join(' + ') : heat.mode === null ? '—' : PROGRAM_NAME);
   const eyebrow = $derived(heat.mode === PROGRAM ? 'Program · veckoschemat' : heat.mode === MANUAL ? 'Värmeläge' : 'Valt läge');
 
-  const choices = $derived([
+  /** The modes to hold on the left, Program and Manuellt on the right. */
+  const held = $derived(modes.map((m) => ({ id: m.id, name: m.name, what: 'hela tiden, tills du väljer annat' })));
+  const others = [
     { id: PROGRAM, name: PROGRAM_NAME, what: 'veckoschemat, värmer när elen är billig' },
-    ...modes.map((m) => ({ id: m.id, name: m.name, what: 'hela tiden, tills du väljer annat' })),
     { id: MANUAL, name: MANUAL_NAME, what: 'målen som de är nu, ändras för hand' },
-  ]);
+  ];
+  const choices = $derived([...held, ...others]);
 
   let choosing = $state<string | null>(null);
   async function choose(id: string) {
@@ -60,12 +62,16 @@
   </p>
   {#if heat.mode !== null}
     <div class="choices" role="radiogroup" aria-label="Välj värmeläge">
-      {#each choices as c (c.id)}
-        {@const chosen = heat.mode === c.id}
-        <button class="choice" class:chosen role="radio" aria-checked={chosen} disabled={choosing !== null} onclick={() => choose(c.id)}>
-          <span class="hole" class:filled={chosen} aria-hidden="true"></span>
-          <span class="cname">{c.name}</span>
-        </button>
+      {#each [held, others] as group, g (g)}
+        <div class="group" class:held={g === 0} style="--n: {group.length}">
+          {#each group as c (c.id)}
+            {@const chosen = heat.mode === c.id}
+            <button class="choice" class:chosen role="radio" aria-checked={chosen} disabled={choosing !== null} onclick={() => choose(c.id)}>
+              <span class="hole" class:filled={chosen} aria-hidden="true"></span>
+              <span class="cname">{c.name}</span>
+            </button>
+          {/each}
+        </div>
       {/each}
     </div>
     {@const chosen = choices.find((c) => c.id === heat.mode)}
@@ -107,12 +113,24 @@
     line-height: 1.45;
     max-width: 60ch;
   }
+  /* The held modes fill the left; Program and Manuellt sit apart on the right. */
   .choices {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
-    gap: var(--space-1);
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-4);
     margin-top: var(--space-4);
-    max-width: 680px;
+  }
+  .group {
+    display: grid;
+    grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+    gap: var(--space-1);
+    flex: 2 1 0;
+    max-width: 420px;
+    min-width: 0;
+  }
+  .group:not(.held) {
+    flex: 1.4 1 0;
+    max-width: 290px;
   }
   .choice {
     display: inline-flex;
@@ -171,8 +189,21 @@
       padding: var(--space-4);
       border-radius: var(--radius-card);
     }
+    /* Too narrow for five in a row: the modes on one line, Program and Manuellt under them on the right, each
+       button as wide as a mode's. */
     .choices {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      flex-direction: column;
+      align-items: flex-end;
+      gap: var(--space-1);
+    }
+    .group,
+    .group:not(.held) {
+      flex: none;
+      width: 100%;
+      max-width: none;
+    }
+    .group:not(.held) {
+      width: calc((100% - 2 * var(--space-1)) * 2 / 3 + var(--space-1));
     }
     .choice {
       font-size: 14px;

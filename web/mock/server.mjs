@@ -90,6 +90,12 @@ if (existsSync(join(TABLES, 'alerts.tsv'))) {
     put({ id: `alert_${r.id}_text`, value: r.text.replace(/\{[^}]*\}/g, '…'), type: 'string', kind: 'derived', alert: alert('text'), ...base });
   }
 }
+// modes.tsv: the heat_use_<mode> cells the engine compiles from it (the first mode in force), so Värme shows its buttons.
+if (existsSync(join(TABLES, 'modes.tsv'))) {
+  readTsv('modes.tsv').forEach((r, i) => {
+    put({ id: `heat_use_${r.id}`, value: i === 0, type: 'boolean', kind: 'derived', settable: false, device: null, prop: null, room: null, group: 'other', name: r.name || null });
+  });
+}
 sys('history_flush', { $duration: 10000 }, 'duration', 'setting');
 sys('weather_interval', { $duration: 1200000 }, 'duration', 'setting');
 sys('timezone', 'Europe/Stockholm', 'string', 'setting');
