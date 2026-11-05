@@ -7,7 +7,7 @@
   const NAV: { id: View; label: string }[] = [
     { id: 'heat', label: 'Värme' },
     { id: 'program', label: 'Program' },
-    { id: 'live', label: 'Live' },
+    { id: 'rooms', label: 'Rum' },
     { id: 'tables', label: 'Tabeller' },
     { id: 'trace', label: 'Logg' },
     { id: 'history', label: 'Grafer' },

@@ -109,7 +109,7 @@ export const TABLES: TableDoc[] = [
     columns: [
       { name: 'id', what: 'Enhetens eget namn, samma som i zigbee2mqtt fast med små bokstäver. Aldrig rummet: sensorer flyttar.', example: 'lamp1' },
       { name: 'room', what: 'Rummet enheten står i just nu. Ett id från Rum. Läses i formler som <id>.room och <id>.room_name.', allowed: 'ett id i rooms.tsv', example: 'living_room' },
-      { name: 'group', what: 'Vilken kolumn enheten hamnar i under rummet i Live. Tomt = standard för sorten: lampor Belysning, termostater Värme, fläkt och klimatsensorer Luft och ventilation, rörelse- och dörrsensorer Sensorer, uttag och fjärrkontroller Övrigt.', allowed: 'light, heating, air, sensors, other eller tomt', example: 'air (ett uttag som driver en luftfuktare)' },
+      { name: 'group', what: 'Vilken kolumn enheten hamnar i under rummet på sidan Rum. Tomt = standard för sorten: lampor Belysning, termostater Värme, fläkt och klimatsensorer Luft och ventilation, rörelse- och dörrsensorer Sensorer, uttag och fjärrkontroller Övrigt.', allowed: 'light, heating, air, sensors, other eller tomt', example: 'air (ett uttag som driver en luftfuktare)' },
       {
         name: 'kind',
         what: 'Slaget. Bestämmer vilka celler enheten har och hur kommandon översätts till zigbee2mqtt. heater är ett element med egen klocka som inget kan läsa eller styra: motorn uppskattar hur mycket det värmer ur rummets temperatur och <rum>_local_setpoint, så att det får en kostnad.',
@@ -118,7 +118,7 @@ export const TABLES: TableDoc[] = [
       },
       { name: 'source', what: 'Var värdena kommer ifrån.', allowed: 'z2m:<vänligt namn>, mqtt:<ämne>, eller estimate för en heater', example: 'z2m:LAMP1' },
       { name: 'watts', what: 'Märkeffekt i watt. Används för att uppskatta energi och elkostnad på sidan Kostnader. Tomt = räknas inte.', allowed: 'ett positivt tal', example: '1000' },
-      { name: 'name', what: 'Visningsnamn på svenska, med åäö. Syns i Live-vyn.', example: 'Lampa LAMP1' },
+      { name: 'name', what: 'Visningsnamn på svenska, med åäö. Syns på sidan Rum.', example: 'Lampa LAMP1' },
       { ...NOTE, example: 'Hue colour bulb LCT012' },
     ],
   },
@@ -144,8 +144,8 @@ export const TABLES: TableDoc[] = [
       },
       { name: 'initial', what: 'Startvärde för en cell utan formel, första gången motorn ser den. Tomt betyder NULL (okänt).', example: 'TRUE' },
       { name: 'type', what: 'Värdets typ för en cell utan formel. Kan utelämnas när initial är satt.', allowed: 'number, boolean, string, duration, timeofday, timestamp', example: 'boolean' },
-      { name: 'room', what: 'Rummet cellen hör till, om den hör till ett. Live visar den då i rummets panel. Tomt = hela huset.', allowed: 'ett id från Rum (rooms.tsv) eller tomt', example: 'bedroom' },
-      { name: 'name', what: 'Svensk text som Live visar i stället för id:t, till exempel på ett reglage. Tomt = id:t visas.', example: 'Styr fläkten automatiskt' },
+      { name: 'room', what: 'Rummet cellen hör till, om den hör till ett. Sidan Rum visar den då i rummets panel. Tomt = hela huset.', allowed: 'ett id från Rum (rooms.tsv) eller tomt', example: 'bedroom' },
+      { name: 'name', what: 'Svensk text som sidan Rum visar i stället för id:t, till exempel på ett reglage. Tomt = id:t visas.', example: 'Styr fläkten automatiskt' },
       { name: 'group', what: 'Vilken kolumn i rummet cellen hör till. Celler med värde visas som reglage där, beräknade celler under rummets Detaljer. Tomt = Övrigt.', allowed: 'light, heating, air, sensors, other eller tomt', example: 'air' },
       { ...NOTE, example: 'fan curve: off at 17, linear 17.5 -> 20, 100% above' },
     ],
@@ -221,7 +221,7 @@ export const TABLES: TableDoc[] = [
     file: 'alerts.tsv',
     title: 'Larm',
     group: 'behaviour',
-    purpose: 'Banderoller överst i Live när något kräver uppmärksamhet: en rad per banderoll, med ett villkor och en text.',
+    purpose: 'Banderoller överst på sidan Rum när något kräver uppmärksamhet: en rad per banderoll, med ett villkor och en text.',
     whenEdit: 'När huset ska säga till: för kallt, för fuktigt, en enhet som inte svarar, en styrning som står avstängd.',
     example: 'workshop_freezing · danger · climate2.temperature < workshop_min_temp',
     about: [

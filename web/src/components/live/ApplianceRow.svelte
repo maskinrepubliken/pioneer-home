@@ -13,6 +13,7 @@
   import Slider from './Slider.svelte';
   import Switch from './Switch.svelte';
   import ThermostatControl from './ThermostatControl.svelte';
+  import HeaterStatus from './HeaterStatus.svelte';
   import Reading from './Reading.svelte';
   import Icon, { type IconName } from './Icon.svelte';
 
@@ -40,7 +41,9 @@
   const lastSeen = $derived(p['last_seen']?.value);
   const seenAt = $derived(isTimestamp(lastSeen ?? null) ? (lastSeen as { $timestamp: number }).$timestamp : null);
   // last_seen is the "sedd för …" line above the list.
-  const details = $derived(device.cells.filter((c) => c.prop !== 'last_seen' && !(PRIMARY[device.kind] ?? []).includes(c.prop ?? '')));
+  // A heater with its own clock is never heard from (no availability) and carries the room's temperature: neither says anything about it.
+  const HIDDEN: Record<string, string[]> = { heater: ['available', 'temperature'] };
+  const details = $derived(device.cells.filter((c) => c.prop !== 'last_seen' && !(PRIMARY[device.kind] ?? []).includes(c.prop ?? '') && !(HIDDEN[device.kind] ?? []).includes(c.prop ?? '')));
 
   const num = (prop: string): number | null => {
     const v = p[prop]?.value;
@@ -60,7 +63,7 @@
 <li class="row" class:offline>
   <div class="head">
     <div class="line">
-    <span class="kind-icon"><Icon name={(device.kind === 'heater' ? 'heat' : ICONS.has(device.kind) ? device.kind : 'device') as IconName} size={18} /></span>
+    <span class="kind-icon"><Icon name={(device.kind === 'heater' ? 'thermostat' : ICONS.has(device.kind) ? device.kind : 'device') as IconName} size={18} /></span>
     <span class="name" title={device.id}>{device.name}</span>
     {#if offline}<span class="pill danger" title="zigbee2mqtt når inte enheten; värdena kan vara gamla">nås inte</span>{/if}
     <span class="primary">
@@ -80,6 +83,8 @@
     <Slider value={num('level')} min={0} max={100} unit="%" label="Nivå {device.name}" onrelease={(n) => sendAction(`set ${device.id} ${n}`)} />
   {:else if device.kind === 'thermostat'}
     <ThermostatControl device={device.id} props={p} {offline} />
+  {:else if device.kind === 'heater'}
+    <HeaterStatus device={device.id} props={p} />
   {:else if device.kind === 'remote' && p['action']?.value}
     <div class="small sub">senast: <span class="mono">{show(p['action'])}</span> {relativeTime(p['action'].changedAt, home.now)}</div>
   {/if}
@@ -88,8 +93,11 @@
     {#if open}
       <div class="small meta">
         <span class="mono">{device.id}</span>
-        <span>sedd {relativeTime(seenAt, home.now)}</span>
+        {#if device.kind !== 'heater'}<span>sedd {relativeTime(seenAt, home.now)}</span>{/if}
       </div>
+      {#if device.kind === 'heater'}
+        <HeaterStatus device={device.id} props={p} part="details" />
+      {/if}
       {#if device.kind === 'thermostat'}
         <ThermostatControl device={device.id} props={p} part="setpoint" />
       {/if}

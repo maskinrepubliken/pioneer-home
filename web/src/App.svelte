@@ -55,7 +55,7 @@
     <Program />
   {:else if route.view === 'modes'}
     <Modes />
-  {:else if route.view === 'live'}
+  {:else if route.view === 'rooms'}
     <Live />
   {:else if route.view === 'tables'}
     <Tables file={route.file} />

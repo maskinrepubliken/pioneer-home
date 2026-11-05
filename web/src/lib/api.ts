@@ -238,6 +238,18 @@ export interface ProgramState {
   /** every quarter ahead, planned or not */
   ahead: { t: number; tout: number; price: number }[];
   rooms: ProgramRoom[];
+  /** heaters with their own clock (kind heater): the estimate now and how far it has learnt */
+  local?: {
+    id: string;
+    name: string;
+    room: string;
+    kw: number;
+    model: { a: number; b: number; d: number; nOff: number; nOn: number } | null;
+    temperature: number | null;
+    setpoint: number | null;
+    demand: number | null;
+    note: string | null;
+  }[];
   errors: string[];
 }
 

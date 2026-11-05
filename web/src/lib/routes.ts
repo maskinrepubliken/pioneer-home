@@ -1,6 +1,6 @@
-/** Hash routes: `#/heat` (Värme, the landing page: also `#/` and the header's title), `#/program`, `#/modes` (Lägen, from Program), `#/live`, `#/tables`, `#/tables/<file>.tsv`, `#/trace`, `#/history` (Grafer), `#/costs`. */
-export type View = 'heat' | 'program' | 'modes' | 'live' | 'tables' | 'trace' | 'history' | 'costs';
-export const VIEWS: View[] = ['heat', 'program', 'modes', 'live', 'tables', 'trace', 'history', 'costs'];
+/** Hash routes: `#/heat` (Värme, the landing page: also `#/` and the header's title), `#/program`, `#/modes` (Lägen, from Program), `#/rooms` (Rum; the old `#/live` still leads there), `#/tables`, `#/tables/<file>.tsv`, `#/trace`, `#/history` (Grafer), `#/costs`. */
+export type View = 'heat' | 'program' | 'modes' | 'rooms' | 'tables' | 'trace' | 'history' | 'costs';
+export const VIEWS: View[] = ['heat', 'program', 'modes', 'rooms', 'tables', 'trace', 'history', 'costs'];
 
 export interface Route {
   view: View;
@@ -10,6 +10,8 @@ export interface Route {
 
 export function parseRoute(hash: string = location.hash): Route {
   const parts = hash.replace(/^#\/?/, '').split('?')[0]!.split('/');
+  // the page was called Live before it became Rum: old links and bookmarks still work
+  if (parts[0] === 'live') parts[0] = 'rooms';
   const view = (VIEWS as string[]).includes(parts[0] ?? '') ? (parts[0] as View) : 'heat';
   const file = view === 'tables' && parts[1] ? decodeURIComponent(parts[1]) : null;
   return { view, file };
