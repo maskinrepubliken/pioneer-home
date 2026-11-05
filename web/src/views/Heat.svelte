@@ -201,7 +201,7 @@
             <span class="hole" class:filled={heatingNow} aria-hidden="true"></span>
             {#if r.heaters.every((h) => h.offline)}nås inte{:else if heatingNow}värmer{#if demand > 0}&nbsp;{Math.round(demand)}&nbsp;%{/if}{:else}vilar{/if}
           {:else if r.heated}
-            ingen termostat{#if r.plan !== null}&nbsp;· plan {short(r.plan)}{/if}
+            {#if r.local}<span title="{r.local.name}: ett element med egen klocka som systemet inte styr">eget element {short(r.local.value)}</span>{:else}ingen termostat{/if}{#if r.plan !== null}&nbsp;· plan {short(r.plan)}{/if}
           {:else if r.humidity !== null}
             {formatQuantity(Math.round(r.humidity), '%')} fukt
           {/if}

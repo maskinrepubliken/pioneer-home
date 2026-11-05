@@ -52,6 +52,8 @@ export interface HeatRoom {
   sources: string[];
   target: Cell | null;
   plan: number | null;
+  /** what a heater the engine cannot steer holds now by its own clock (`<room>_local_setpoint`), its label */
+  local: { value: number; name: string } | null;
   heaters: Heater[];
 }
 
@@ -83,7 +85,7 @@ export function modeName(mode: string | null, modes: HeatMode[]): string {
 /** Every room in the Live order, the heated ones first, with its readings and heat sources (thermostats). */
 export function heatRooms(layout: LiveLayout, byId: Record<string, Cell | undefined>, roomNames: Record<string, string>): HeatRoom[] {
   const ids = [...new Set([...Object.keys(roomNames), ...layout.rooms.map((r) => r.key).filter(Boolean)])];
-  const heated = (r: string) => Boolean(byId[`${r}_plan`] || byId[`${r}_target`]);
+  const heated = (r: string) => Boolean(byId[`${r}_plan`] || byId[`${r}_target`] || byId[`${r}_local_setpoint`]);
   const ordered = [...ids.filter(heated), ...ids.filter((r) => !heated(r))];
   return ordered.map((id): HeatRoom => {
     const live = layout.rooms.find((r) => r.key === id);
@@ -110,6 +112,7 @@ export function heatRooms(layout: LiveLayout, byId: Record<string, Cell | undefi
       sources: (t?.sources ?? []).map((s) => s.name),
       target: byId[`${id}_target`] ?? null,
       plan: num(byId[`${id}_plan`]),
+      local: num(byId[`${id}_local_setpoint`]) === null ? null : { value: num(byId[`${id}_local_setpoint`])!, name: byId[`${id}_local_setpoint`]?.name ?? 'eget element' },
       heaters,
     };
   });
