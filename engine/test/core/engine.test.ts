@@ -260,6 +260,72 @@ describe('engine passes', () => {
     expect(sim.get('hall.light.last_seen')).not.toBeNull();
   });
 
+  describe('resending a command z2m could not deliver', () => {
+    const TH = 'id\troom\tkind\tsource\nth\thall\tthermostat\tz2m:TH\n';
+    const fail = (sim: Simulator) =>
+      sim.mqtt('zigbee2mqtt/bridge/logging', `{"level":"error","message":"z2m: Publish 'set' 'occupied_heating_setpoint' to 'TH' failed: 'Error: ZCL command timed out'"}`);
+    const setpoints = (sim: Simulator, from = 0) => sets(sim, from).map((m) => m.payload);
+    const setup = () => {
+      const sim = new Simulator(makeConfig({ 'devices.tsv': TH }), { at: at('2026-11-04T20:00'), echo: false });
+      sim.action('set th 12');
+      fail(sim);
+      return sim;
+    };
+
+    it('resends after 30 s, 2 min and 5 min, one failure at a time, then gives up', () => {
+      const sim = setup();
+      expect(setpoints(sim)).toEqual(['{"occupied_heating_setpoint":12}']);
+      sim.advance(29_000);
+      expect(setpoints(sim)).toHaveLength(1);
+      sim.advance(1_000);
+      expect(setpoints(sim)).toEqual(['{"occupied_heating_setpoint":12}', '{"occupied_heating_setpoint":12}']);
+      fail(sim);
+      sim.advance(120_000);
+      expect(setpoints(sim)).toHaveLength(3);
+      fail(sim);
+      sim.advance(300_000);
+      expect(setpoints(sim)).toHaveLength(4);
+      const traces: string[] = [];
+      sim.engine.onTrace((t) => traces.push(...t.errors));
+      fail(sim);
+      sim.advance(600_000);
+      expect(setpoints(sim)).toHaveLength(4);
+      expect(traces.some((e) => e.includes('gave up on "set th 12"'))).toBe(true);
+    });
+
+    it('stops once a resend gets through', () => {
+      const sim = setup();
+      sim.advance(30_000);
+      expect(setpoints(sim)).toHaveLength(2);
+      sim.advance(600_000);
+      expect(setpoints(sim)).toHaveLength(2);
+    });
+
+    it('does not resend when the device already reports the value', () => {
+      const sim = setup();
+      sim.mqtt('zigbee2mqtt/TH', '{"occupied_heating_setpoint":12}');
+      sim.advance(60_000);
+      expect(setpoints(sim)).toHaveLength(1);
+    });
+
+    it('does not resend a command a newer one has replaced', () => {
+      const sim = setup();
+      sim.advance(10_000);
+      sim.action('set th 18');
+      sim.advance(600_000);
+      expect(setpoints(sim)).toEqual(['{"occupied_heating_setpoint":12}', '{"occupied_heating_setpoint":18}']);
+    });
+
+    it('ignores a failure long after the last command (sent from elsewhere)', () => {
+      const sim = new Simulator(makeConfig({ 'devices.tsv': TH }), { at: at('2026-11-04T20:00'), echo: false });
+      sim.action('set th 12');
+      sim.advance(3_600_000);
+      fail(sim);
+      sim.advance(600_000);
+      expect(setpoints(sim)).toHaveLength(1);
+    });
+  });
+
   it('SHARE integrates how long a boolean cell was TRUE over the window', () => {
     const config = makeConfig({
       'vars.tsv': 'id\ttype\tinitial\nheating\tboolean\tFALSE\n',

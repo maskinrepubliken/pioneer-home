@@ -162,6 +162,7 @@ Scenario rows: `step | at | do | expect`. `at` = absolute `2026-09-23T21:00` (fi
 - One cause per pass. Actions that change engine state (`event`, `set <var>`, `start`, `cancel`) become new passes, so traces stay readable. A chain deeper than 20 passes is cut with an error (rules feeding each other).
 - Device cells change only when the device reports back over MQTT, never optimistically.
 - `<device>.last_seen` is set by live reports only; a retained message replayed at startup is old state and does not count. When zigbee2mqtt reports on `bridge/logging` that a command to a device failed, `<device>.available` becomes FALSE (Live shows "nås inte") until the device reports live again.
+- A command zigbee2mqtt reports as failed (within 2 min of sending) is resent: after 30 s, then after the next failure 2 min, then 5 min; after a third failed resend the trace gets an error "gave up on ...". Nothing is resent when a newer command to the device was sent meanwhile, or when the device already reports the values the command sets. Not in `DRY_RUN`.
 - Rate guard: more than 10 commands to one device in 10 s are dropped with an error in the trace.
 - Startup and hot reload evaluate everything and baseline rule edges **without firing**.
 - `DRY_RUN=true` logs actions instead of publishing (used during the Node-RED cutover). `just dryrun` prints what the engine would have sent and whether the device ended up in that state anyway (because Node-RED did it).

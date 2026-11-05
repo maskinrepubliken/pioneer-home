@@ -89,6 +89,21 @@ export interface EngineSnapshot {
 const MAX_CHAIN_DEPTH = 20;
 const RATE_WINDOW_MS = 10_000;
 const RATE_MAX = 10;
+/** Waits before resending a command zigbee2mqtt reported as failed: first, second and third resend. */
+const RESEND_DELAYS_MS = [30_000, 120_000, 300_000];
+/** A failure report this long after a command was sent is not about that command. */
+const RESEND_WINDOW_MS = 120_000;
+
+/** The last command sent to a device, kept so a failed one can be resent. */
+interface SentCommand {
+  topic: string;
+  payload: string;
+  detail: string;
+  sentAt: number;
+  /** resends done so far */
+  resends: number;
+  timer: TimerHandle | null;
+}
 
 export class Engine {
   config: Config;
@@ -109,6 +124,7 @@ export class Engine {
   private traceListeners: ((t: Trace) => void)[] = [];
   private changeListeners: ((changes: CellChange[], at: number) => void)[] = [];
   private rateLog = new Map<string, number[]>();
+  private sent = new Map<string, SentCommand>();
   private topicToDevice = new Map<string, DeviceDef>();
   private subscribed = false;
   /** last error banner for the UI; null when the config is healthy */
@@ -268,7 +284,10 @@ export class Engine {
     if (topic === `${this.z2mBase()}/bridge/logging`) {
       const friendly = z2mFailedCommand(payload);
       const failed = friendly === null ? undefined : this.topicToDevice.get(`${this.z2mBase()}/${friendly}`);
-      if (failed) this.applyInputs([{ cell: `${failed.id}.available`, value: false }], `z2m could not reach ${failed.id}`);
+      if (failed) {
+        this.applyInputs([{ cell: `${failed.id}.available`, value: false }], `z2m could not reach ${failed.id}`);
+        this.scheduleResend(failed);
+      }
       return;
     }
     const dev = this.topicToDevice.get(topic);
@@ -526,7 +545,64 @@ export class Engine {
       trace.actions.push({ source: tag, detail: `set ${dev.id} ${tokens.join(' ')}`, topic, dryRun: this.dryRun, error: `rate guard: more than ${RATE_MAX} commands to ${dev.id} in ${RATE_WINDOW_MS / 1000}s, dropped` });
       return;
     }
-    this.publish(topic, JSON.stringify(payload), false, trace, tag, `set ${dev.id} ${tokens.join(' ')}`);
+    const detail = `set ${dev.id} ${tokens.join(' ')}`;
+    this.publish(topic, JSON.stringify(payload), false, trace, tag, detail);
+    if (this.dryRun) return;
+    const prev = this.sent.get(dev.id);
+    if (prev?.timer) this.clock.clear(prev.timer);
+    this.sent.set(dev.id, { topic, payload: JSON.stringify(payload), detail, sentAt: this.clock.now(), resends: 0, timer: null });
+  }
+
+  /**
+   * zigbee2mqtt reported that a command to this device failed (no answer from the device): resend the last command
+   * after 30 s, 2 min and 5 min, one failure report at a time, then give up with an error in the trace. Nothing is
+   * resent when a newer command was sent meanwhile, or when the device already reports the values the command sets.
+   */
+  private scheduleResend(dev: DeviceDef): void {
+    const cmd = this.sent.get(dev.id);
+    if (!cmd || cmd.timer !== null || this.clock.now() - cmd.sentAt > RESEND_WINDOW_MS) return;
+    if (cmd.resends >= RESEND_DELAYS_MS.length) {
+      this.sent.delete(dev.id);
+      this.enqueue(`resend ${dev.id}`, (trace) => {
+        trace.errors.push(`gave up on "${cmd.detail}": ${dev.id} did not answer after ${RESEND_DELAYS_MS.length} resends`);
+      });
+      return;
+    }
+    const delay = RESEND_DELAYS_MS[cmd.resends]!;
+    cmd.timer = this.clock.setTimer(this.clock.now() + delay, () => {
+      cmd.timer = null;
+      if (this.sent.get(dev.id) !== cmd) return;
+      if (this.applied(dev, cmd.payload)) {
+        this.sent.delete(dev.id);
+        return;
+      }
+      cmd.resends++;
+      cmd.sentAt = this.clock.now();
+      const n = `${cmd.resends}/${RESEND_DELAYS_MS.length}`;
+      this.enqueue(`resend ${dev.id} (${n})`, (trace) => {
+        if (!this.rateOk(dev.id)) {
+          trace.actions.push({ source: 'resend', detail: `${cmd.detail} (${n})`, topic: cmd.topic, dryRun: this.dryRun, error: `rate guard: more than ${RATE_MAX} commands to ${dev.id} in ${RATE_WINDOW_MS / 1000}s, dropped` });
+          return;
+        }
+        this.publish(cmd.topic, cmd.payload, false, trace, 'resend', `${cmd.detail} (${n})`);
+      });
+    });
+  }
+
+  /** Whether the device already reports every value a sent payload sets (relative steps count as not checkable). */
+  private applied(dev: DeviceDef, payload: string): boolean {
+    let want: Record<string, Value>;
+    try {
+      want = dev.kind.fromPayload(JSON.parse(payload) as RawState);
+    } catch {
+      return false;
+    }
+    const entries = Object.entries(want);
+    if (!entries.length) return false;
+    return entries.every(([prop, v]) => {
+      const have = this.store.get(`${dev.id}.${prop}`);
+      return typeof v === 'number' && typeof have === 'number' ? Math.abs(v - have) < 1e-6 : have === v;
+    });
   }
 
   private publish(topic: string, payload: string, retain: boolean, trace: Trace, source: string, detail: string): void {
@@ -773,6 +849,7 @@ export class Engine {
   dispose(): void {
     for (const h of this.timers) this.clock.clear(h);
     this.timers = [];
+    for (const cmd of this.sent.values()) if (cmd.timer !== null) this.clock.clear(cmd.timer);
     for (const inst of this.sequences.values()) if (inst.timer !== null) this.clock.clear(inst.timer);
   }
 
