@@ -6,7 +6,8 @@
    * hour across every strip; its values are read out above the strips, and every hour is also in the table.
    * Heat sources keep their colour by name (alphabetical), never by rank. For a plan, two strips come first: the
    * heating mode of each hour (a band in the week grid's fills, split in a transition) and each room's target per
-   * quarter (stepped lines, one dash pattern per room).
+   * quarter (stepped lines, one dash pattern per room). For history, a strip per room (after the outdoor ones): its
+   * measured temperature as a line and its target as a dashed step, all rooms on one scale.
    */
   import { kr } from '../lib/cost';
   import { seriesFill, seriesStroke } from '../lib/seriesFill';
@@ -15,6 +16,12 @@
   interface HourMode {
     name: string;
     fill: ModeFill;
+  }
+  interface RoomLine {
+    label: string;
+    /** °C per hour: the room's mean, and its thermostats' target */
+    temp: (number | null)[];
+    target: (number | null)[];
   }
   interface Target {
     label: string;
@@ -37,6 +44,7 @@
     ahead = false,
     modes = [],
     targets = [],
+    rooms = [],
   }: {
     /** start of each hour, epoch seconds */
     hours: number[];
@@ -54,6 +62,8 @@
     modes?: HourMode[][];
     /** each room's target per quarter; empty: no Mål strip */
     targets?: Target[];
+    /** each room's temperature and target per hour; a strip per room */
+    rooms?: RoomLine[];
   } = $props();
 
   const ordered = $derived([...sources].sort((a, b) => a.label.localeCompare(b.label, 'sv')));
@@ -167,6 +177,14 @@
     const hi = Math.max(...v);
     return lo === hi ? `${num1(lo)} °C` : `${num1(lo)}–${num1(hi)} °C`;
   }
+  const roomRange = $derived(range(rooms.flatMap((r) => [...r.temp, ...r.target])));
+  /** An hourly series as quarters, for stepPath. */
+  const quarters = (vals: (number | null)[]) => vals.flatMap((v) => [v, v, v, v]);
+  const roomIn = (r: RoomLine, i: number) => {
+    const t = r.temp[i];
+    const g = r.target[i];
+    return { temp: t === null || t === undefined ? '—' : `${num1(t)} °C`, target: g === null || g === undefined ? null : `${num1(g)} °C` };
+  };
   const modeIn = (i: number) => (modes[i] ?? []).map((m) => m.name).join(' + ') || '—';
 
   const tempRange = $derived(range(outdoor));
@@ -178,6 +196,7 @@
     ...(hasTargets ? [{ id: 'mal', title: 'Mål', unit: '°C', kind: 'targets', h: H.line + 8 }] : []),
     { id: 'ute', title: 'Ute', unit: '°C', kind: 'line', h: H.line },
     ...(hasSun ? [{ id: 'sol', title: 'Sol', unit: 'lx', kind: 'sun', h: H.line }] : []),
+    ...rooms.map((r, k) => ({ id: `rum${k}`, title: r.label, unit: '°C', kind: 'room', h: H.line, room: k })),
     ...(sources.length ? [{ id: 'kw', title: 'Värme', unit: 'kW', kind: 'kw', h: H.bars }] : []),
     { id: 'pris', title: 'Elpris', unit: 'kr/kWh', kind: 'price', h: H.line },
     ...(sources.length ? [{ id: 'kr', title: 'Kostnad', unit: 'kr', kind: 'sek', h: H.bars }] : []),
@@ -224,6 +243,10 @@
         {#each hasTargets ? targets : [] as t (t.label)}<div><dt>Mål {t.label}</dt><dd class="value">{targetIn(t, shown)}</dd></div>{/each}
         <div><dt>Ute</dt><dd class="value">{outdoor[shown] === null ? '—' : `${num1(outdoor[shown]!)} °C`}</dd></div>
         {#if hasSun}<div><dt>Sol</dt><dd class="value">{lux(sun[shown])}</dd></div>{/if}
+        {#each rooms as r (r.label)}
+          {@const v = roomIn(r, shown)}
+          <div><dt>{r.label}{#if v.target}, mål {v.target}{/if}</dt><dd class="value">{v.temp}</dd></div>
+        {/each}
         {#if sources.length}<div><dt>Värme</dt><dd class="value">{num2(kwTotal[shown] ?? 0)} kW</dd></div>{/if}
         <div><dt>Elpris</dt><dd class="value">{price[shown] === null ? '—' : `${num2(price[shown]!)} kr/kWh`}</dd></div>
         {#if sources.length}<div><dt>Kostnad</dt><dd class="value">{kr(sekTotal[shown] ?? 0)}</dd></div>{/if}
@@ -247,6 +270,10 @@
         <div class="strip">
           <span class="stitle"
             >{strip.title} <span class="unit">{strip.unit}</span>
+            {#if strip.kind === 'room'}
+              <span class="key"><svg width="22" height="8" aria-hidden="true"><line x1="0" x2="22" y1="4" y2="4" /></svg>uppmätt</span>
+              <span class="key"><svg width="22" height="8" aria-hidden="true"><line x1="0" x2="22" y1="4" y2="4" stroke-dasharray="6 3" /></svg>mål</span>
+            {/if}
             {#if strip.kind === 'targets'}
               {#each targets as t, k (t.label)}
                 <span class="key"><svg width="22" height="8" aria-hidden="true"><line x1="0" x2="22" y1="4" y2="4" stroke-dasharray={DASHES[k % DASHES.length]} /></svg>{t.label}</span>
@@ -288,6 +315,12 @@
               {#each targets as t, k (t.label)}
                 <path class="line step" stroke-dasharray={DASHES[k % DASHES.length]} d={stepPath(t.q, targetRange[0], targetRange[1], strip.h)} />
               {/each}
+            {:else if strip.kind === 'room'}
+              {@const r = rooms[(strip as { room: number }).room]!}
+              <text class="ax" x={GUTTER - 6} y={PAD + 4}>{roomRange[1]}°</text>
+              <text class="ax" x={GUTTER - 6} y={strip.h - PAD}>{roomRange[0]}°</text>
+              <path class="line step" stroke-dasharray="6 3" d={stepPath(quarters(r.target), roomRange[0], roomRange[1], strip.h)} />
+              <path class="line" d={linePath(r.temp, roomRange[0], roomRange[1], strip.h)} />
             {:else if strip.kind === 'line'}
               <text class="ax" x={GUTTER - 6} y={PAD + 4}>{tempRange[1]}°</text>
               <text class="ax" x={GUTTER - 6} y={strip.h - PAD}>{tempRange[0]}°</text>
@@ -336,7 +369,7 @@
   {#if tableOpen}
     <div class="tablewrap">
       <table>
-        <thead><tr><th>Timme</th>{#if hasModes}<th>Läge</th>{/if}{#each hasTargets ? targets : [] as t (t.label)}<th>{t.label}</th>{/each}<th>Ute</th>{#if hasSun}<th>Sol</th>{/if}{#if sources.length}<th>Värme</th>{/if}<th>Elpris</th>{#if sources.length}<th>Kostnad</th>{/if}</tr></thead>
+        <thead><tr><th>Timme</th>{#if hasModes}<th>Läge</th>{/if}{#each hasTargets ? targets : [] as t (t.label)}<th>{t.label}</th>{/each}<th>Ute</th>{#if hasSun}<th>Sol</th>{/if}{#each rooms as r (r.label)}<th>{r.label}</th>{/each}{#if sources.length}<th>Värme</th>{/if}<th>Elpris</th>{#if sources.length}<th>Kostnad</th>{/if}</tr></thead>
         <tbody>
           {#each hours as t, i (t)}
             <tr>
@@ -345,6 +378,10 @@
               {#each hasTargets ? targets : [] as tg (tg.label)}<td class="value">{targetIn(tg, i)}</td>{/each}
               <td class="value">{outdoor[i] === null ? '—' : `${num1(outdoor[i]!)} °C`}</td>
               {#if hasSun}<td class="value">{lux(sun[i])}</td>{/if}
+              {#each rooms as r (r.label)}
+                {@const v = roomIn(r, i)}
+                <td class="value">{v.temp}{#if v.target} (mål {v.target}){/if}</td>
+              {/each}
               {#if sources.length}<td class="value">{num2(kwTotal[i] ?? 0)} kW</td>{/if}
               <td class="value">{price[i] === null ? '—' : num2(price[i]!)}</td>
               {#if sources.length}<td class="value">{kr(sekTotal[i] ?? 0)}</td>{/if}

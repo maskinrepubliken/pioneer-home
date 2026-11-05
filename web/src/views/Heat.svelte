@@ -2,18 +2,18 @@
   /**
    * Värme, the landing page: the heating mode (Schema, a mode chosen by hand, or Manuellt), every room on one line
    * (the heated ones first, with their target), and the last 48 hours: outdoor temperature, heating power, price and
-   * cost hour by hour (components/HeatStrips.svelte), and the room temperatures. Modes and rooms come from cell naming conventions (lib/heat.ts); history and cost reuse lib/history.ts
+   * every heated room's temperature against its target, cost hour by hour, all in aligned strips (components/HeatStrips.svelte)
+   * so one hour reads across all of them. Modes and rooms come from cell naming conventions (lib/heat.ts); history and cost reuse lib/history.ts
    * and lib/cost.ts, limited to thermostats.
    */
   import { onMount } from 'svelte';
-  import Chart from '../components/Chart.svelte';
   import HeatStrips from '../components/HeatStrips.svelte';
   import { api, ApiError, type PriceSlot } from '../lib/api';
   import { applianceOrder, computeCosts, costPerBucket, isUnreachable, kr, kwhPerBucket, pricePerBucket, type CostResult } from '../lib/cost';
   import { formatQuantity, roomName, timeOnly } from '../lib/format';
   import { heatRooms, targetActions } from '../lib/heat';
   import ModePicker from '../components/ModePicker.svelte';
-  import { meanSeries, namesFromTables, roomOfLocation, seriesBy, sourceId, sourceName, ts, num, type Rec, type Series } from '../lib/history';
+  import { namesFromTables, roomOfLocation, sourceId, ts, num, type Rec } from '../lib/history';
   import { buildLive, excludedReadings } from '../lib/live';
   import { home, sendAction } from '../lib/state.svelte';
 
@@ -43,19 +43,8 @@
   /** Short form for the room list: 19.5° */
   const short = (n: number | null) => (n === null ? '—' : `${(Math.round(n * 10) / 10).toFixed(1)}°`);
 
-  /** Phones get shorter charts. */
-  let narrow = $state(false);
-  onMount(() => {
-    const mq = matchMedia('(max-width: 640px)');
-    const set = () => (narrow = mq.matches);
-    set();
-    mq.addEventListener('change', set);
-    return () => mq.removeEventListener('change', set);
-  });
-
   // ---- the last 48 hours ------------------------------------------------------------------------------------------
   const HOURS = 48;
-  const BUCKET = 900;
   let loading = $state(true);
   let error = $state<string | null>(null);
   let climate = $state<Rec[]>([]);
@@ -102,33 +91,11 @@
   });
 
   const names = $derived(namesFromTables(home.tables?.files ?? {}));
-  const label = (key: string) => sourceName(names, key);
   const heatedRooms = $derived(new Set(heated.map((r) => r.id)));
   const roomOfHeater = (r: Rec) => names.deviceRoom[sourceId(names, String(r['sensor'] ?? ''))] ?? null;
   const roomTitle = (id: string) => roomName(id, home.rooms);
   const excluded = $derived(excludedReadings(home.cells));
 
-  /** Per heated room: the mean of its climate sensors, else of its thermostats' own readings; plus its target. */
-  const temperatures = $derived.by((): Series[] => {
-    const lines: Series[] = [];
-    const targets: Series[] = [];
-    for (const r of heated) {
-      const c = climate.filter(
-        (x: Rec) =>
-          typeof x['location'] === 'string' &&
-          roomOfLocation(names, x['location'], String(x['sensor'] ?? '')) === r.id &&
-          !excluded.has(`${sourceId(names, String(x['sensor'] ?? ''))}.temperature`),
-      );
-      const h = heating.filter((x: Rec) => roomOfHeater(x) === r.id);
-      const sources = c.length ? seriesBy(c, 'sensor', 'temperature', label) : seriesBy(h, 'sensor', 'current', label);
-      const mean = meanSeries(sources, BUCKET, r.title);
-      if (mean) lines.push({ ...mean, colorKey: r.title });
-      const target = seriesBy(h, 'sensor', 'target', () => `Mål ${r.title}`, { stepped: true, dash: true, colorKey: () => r.title })[0];
-      if (target) targets.push(target);
-    }
-    // the chart draws five series: rooms first, targets while there is room
-    return [...lines, ...targets].slice(0, 5);
-  });
 
   const cellNumber = (id: string, fallback: number) => {
     const v = home.cells[id]?.value;
@@ -182,6 +149,24 @@
     const from = span.until - 86_400;
     return costs.reduce((n, c) => n + costPerBucket(c, [[from, span.until]])[0]!, 0);
   });
+  const lastDayKwh = $derived.by(() => {
+    const from = span.until - 86_400;
+    return costs.reduce((n, c) => n + kwhPerBucket(c, [[from, span.until]])[0]!, 0);
+  });
+
+  /** Per heated room and hour: the mean of its climate sensors (else its thermostats' own readings), and its target. */
+  const roomLines = $derived(
+    heated.map((r) => {
+      const c = climate.filter(
+        (x: Rec) =>
+          typeof x['location'] === 'string' &&
+          roomOfLocation(names, x['location'], String(x['sensor'] ?? '')) === r.id &&
+          !excluded.has(`${sourceId(names, String(x['sensor'] ?? ''))}.temperature`),
+      );
+      const h = heating.filter((x: Rec) => roomOfHeater(x) === r.id);
+      return { label: r.title, temp: c.length ? hourly(c, 'temperature') : hourly(h, 'current'), target: hourly(h, 'target') };
+    }).filter((l) => l.temp.some((v) => v !== null)),
+  );
 </script>
 
 <ModePicker />
@@ -245,16 +230,11 @@
       <div class="total">
         <span class="label">Senaste dygnet</span>
         <b class="big">{kr(lastDay)}</b>
-        <span class="sub">de senaste 24 timmarna</span>
+        <span class="sub">{formatQuantity(Math.round(lastDayKwh * 10) / 10, 'kWh')} på 24 timmar</span>
       </div>
     </div>
     {#if sources.length}
-      <HeatStrips {hours} outdoor={hourlyOutdoor} sun={hourlySun} price={hourlyPrice} {sources} order={applianceOrder(names, roomTitle)} />
-    {/if}
-    {#if temperatures.length}
-      <div class="charts">
-        <Chart since={span.since} until={span.until} title="Temperatur i rummen" unit="°C" series={temperatures} height={narrow ? 160 : 200} />
-      </div>
+      <HeatStrips {hours} outdoor={hourlyOutdoor} sun={hourlySun} rooms={roomLines} price={hourlyPrice} {sources} order={applianceOrder(names, roomTitle)} />
     {/if}
     <p class="note">Värme och kostnad är uppskattningar: effekt × värmebehov, och den energin × elpriset (spotpris med moms och påslag), som under Kostnader.</p>
   {/if}
@@ -415,12 +395,6 @@
     font-size: 12px;
     line-height: 1.4;
     color: var(--ink-muted);
-  }
-  .charts {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-5);
-    margin-top: var(--space-5);
   }
   .note {
     margin: var(--space-4) 0 0;
