@@ -13,22 +13,13 @@ humidifier_on_below	50			bedroom	air	Luftfuktaren på under	% relative humidity
 humidifier_off_above	60			bedroom	air	Luftfuktaren av över	% relative humidity
 # --- heating modes (the start page, Värme and Program). heat_mode program follows the week schedule (week.tsv: Hemma, Sova, Borta per hour;
 # two modes in one hour are a transition), a mode chosen holds all the time, and the program planner heats within that comfort by price and
-# weather (program.<room>). Each room's temperature per mode is <room>_<mode>. manual: a target changed by hand, in the UI or on a thermostat;
+# weather (program.<room>). The modes and each room's temperature in them are in modes.tsv. manual: a target changed by hand, in the UI or on a thermostat;
 # it holds until program or a mode is chosen again.
 heat_cold	12				heating	Kallt	ingen skada på huset, rören, textilierna eller maten, men ingen är där
 heat_overlap_slack	1				heating	Övergången får sakna	grader under det varmaste läget i en övergångstimme (två lägen samtidigt i schemat)
 program_slack	1				heating	Programmet får sakna	°C under komforten som programmet får låta rummet ligga under dyra timmar
 program_preheat	1.5				heating	Programmet får förvärma	°C över den kommande komforten som programmet får värma i förväg när elen är billig
 program_shortfall_cost	0.5				heating	Kostnad för att sakna värme	kr per grad och timme under komforten: högre = programmet håller komforten oftare, lägre = sparar mer
-living_room_home	18			living_room	heating	Hemma	rummets temperatur i läget Hemma
-living_room_sleep	heat_cold			living_room	heating	Sova	rummets temperatur i läget Sova
-living_room_away	heat_cold			living_room	heating	Borta	rummets temperatur i läget Borta
-study_home	18			study	heating	Hemma	rummets temperatur i läget Hemma
-study_sleep	heat_cold			study	heating	Sova	rummets temperatur i läget Sova
-study_away	heat_cold			study	heating	Borta	rummets temperatur i läget Borta
-bedroom_home	heat_cold			bedroom	heating	Hemma	rummets temperatur i läget Hemma
-bedroom_sleep	17			bedroom	heating	Sova	rummets temperatur i läget Sova
-bedroom_away	heat_cold			bedroom	heating	Borta	rummets temperatur i läget Borta
 # --- held values
 heat_mode		program	string		heating	Värmeläge	program = veckoschemat (week.tsv) med programmets planering; home, sleep eller away = det läget hela tiden; manual = målen ändrade för hand, gäller tills program eller ett läge väljs
 living_room_target		21	number	living_room	heating	Måltemperatur	rummets måltemperatur; värmekällorna i rummet följer den
@@ -44,14 +35,7 @@ too_dry	climate1.humidity < humidifier_on_below			bedroom	air	För torrt
 too_humid	climate1.humidity > humidifier_off_above			bedroom	air	För fuktigt	
 floor1_heating	floor1.mode = "heat"			study	heating	Golvvärme 1 värmer	bool for the heating history table
 floor2_heating	floor2.mode = "heat"			living_room	heating	Golvvärme 2 värmer	
-# --- heating modes now: the schedule's modes in heat_mode program, else the mode chosen; comfort per room, and the plan the targets follow
-heat_use_home	IF(heat_mode = "program", COALESCE(week.home, FALSE), heat_mode = "home")				heating	Hemma	läget Hemma gäller just nu
-heat_use_sleep	IF(heat_mode = "program", COALESCE(week.sleep, FALSE), heat_mode = "sleep")				heating	Sova	läget Sova gäller just nu
-heat_use_away	IF(heat_mode = "program", COALESCE(week.away, FALSE), heat_mode = "away")				heating	Borta	läget Borta gäller just nu
-heat_transition	(IF(heat_use_home, 1, 0) + IF(heat_use_sleep, 1, 0) + IF(heat_use_away, 1, 0)) >= 2				heating	Övergång	två lägen samtidigt i schemat
-living_room_comfort	MAX(heat_cold, MAX(IF(heat_use_home, living_room_home, heat_cold), IF(heat_use_sleep, living_room_sleep, heat_cold), IF(heat_use_away, living_room_away, heat_cold)) - IF(heat_transition, heat_overlap_slack, 0))			living_room	heating	Lägets temperatur	det varmaste av lägena som gäller nu; i en övergång heat_overlap_slack lägre
+# --- heating: the plan each room's target follows (modes.tsv compiles heat_use_<mode>, <room>_<mode>, heat_transition and <room>_comfort)
 living_room_plan	COALESCE(program.living_room, living_room_comfort)			living_room	heating	Planerad temperatur	programmets temperatur när det har en plan för rummet, annars lägets
-study_comfort	MAX(heat_cold, MAX(IF(heat_use_home, study_home, heat_cold), IF(heat_use_sleep, study_sleep, heat_cold), IF(heat_use_away, study_away, heat_cold)) - IF(heat_transition, heat_overlap_slack, 0))			study	heating	Lägets temperatur	det varmaste av lägena som gäller nu; i en övergång heat_overlap_slack lägre
 study_plan	COALESCE(program.study, study_comfort)			study	heating	Planerad temperatur	programmets temperatur när det har en plan för rummet, annars lägets
-bedroom_comfort	MAX(heat_cold, MAX(IF(heat_use_home, bedroom_home, heat_cold), IF(heat_use_sleep, bedroom_sleep, heat_cold), IF(heat_use_away, bedroom_away, heat_cold)) - IF(heat_transition, heat_overlap_slack, 0))			bedroom	heating	Lägets temperatur	det varmaste av lägena som gäller nu; i en övergång heat_overlap_slack lägre
 bedroom_plan	COALESCE(program.bedroom, bedroom_comfort)			bedroom	heating	Planerad temperatur	programmets temperatur när det har en plan för rummet, annars lägets

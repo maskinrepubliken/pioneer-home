@@ -1,0 +1,7 @@
+# Värmens lägen: ett läge per rad med namn och temperatur för varje rum (en kolumn per rum, ett id från rooms.tsv).
+# Temperaturen är ett tal eller en formel; heat_cold (eller tomt) = Kallt. Veckoschemat (week.tsv) säger när lägena gäller.
+# Redigeras enklast på sidan Lägen (från Program). Varje rad blir cellerna heat_use_<läge> och <rum>_<läge>; dessutom heat_transition och <rum>_comfort.
+id	name	living_room	study	bedroom	note
+home	Hemma	18	18	heat_cold	
+sleep	Sova	heat_cold	heat_cold	17	
+away	Borta	heat_cold	heat_cold	heat_cold	

@@ -1,7 +1,8 @@
 /**
- * The week schedule (week.tsv): for every hour of the week, the heating modes in force. One mode is that mode;
- * two or more are a transition between them. The engine keeps a boolean system cell `week.<mode>` per mode on
- * the current hour, and the program planner reads the schedule ahead. Pure functions.
+ * The week schedule (week.tsv): for every hour of the week, the heating mode in force. Where the mode changes, the
+ * first hour of the new mode is a transition: both modes are in force (an hour may also list two itself). The engine
+ * keeps a boolean system cell `week.<mode>` per mode on the current hour, and the program planner reads the schedule
+ * ahead. Pure functions.
  */
 import { localParts } from '../formula/time.js';
 
@@ -21,10 +22,18 @@ export function slotKey(weekday: number, hour: number): number {
   return (weekday - 1) * 24 + hour;
 }
 
+/** The modes in force in a slot of the week: its own, plus the hour before's when that was another mode. */
+export function modesInSlot(s: WeekSchedule, key: number): string[] {
+  const own = s.slots.get(key) ?? [];
+  const before = s.slots.get((key + 7 * 24 - 1) % (7 * 24)) ?? [];
+  if (own.length !== 1 || !before.length || before.includes(own[0]!)) return own;
+  return [before[before.length - 1]!, own[0]!];
+}
+
 /** The modes in force at an instant, in the house's time zone. */
 export function scheduleAt(s: WeekSchedule, epochMs: number, tz: string): string[] {
   const p = localParts(epochMs, tz);
-  return s.slots.get(slotKey(p.weekday, p.hour)) ?? [];
+  return modesInSlot(s, slotKey(p.weekday, p.hour));
 }
 
 /** The next local full hour after an instant (time zone offsets are whole hours here, so DST needs nothing more). */

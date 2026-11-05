@@ -1,6 +1,6 @@
 # Veckoschemat för värmen: vilket läge som gäller varje timme (kolumnen hour = timmen som börjar då, 0-23).
-# Ett läge per ruta (home = Hemma, sleep = Sova, away = Borta); två lägen i samma ruta är en övergång: varje rum får det varmaste
-# lägets temperatur minus heat_overlap_slack. Gäller när värmeläget är program. Redigeras enklast på sidan Program.
+# Ett läge per ruta (lägena står i modes.tsv). Där läget byter är det nya lägets första timme en övergång: båda lägena gäller och
+# varje rum får det varmaste lägets temperatur minus heat_overlap_slack. Gäller när värmeläget är program. Redigeras enklast på sidan Program.
 hour	mon	tue	wed	thu	fri	sat	sun
 00	sleep	sleep	sleep	sleep	sleep	sleep	sleep
 01	sleep	sleep	sleep	sleep	sleep	sleep	sleep
@@ -8,20 +8,20 @@ hour	mon	tue	wed	thu	fri	sat	sun
 03	sleep	sleep	sleep	sleep	sleep	sleep	sleep
 04	sleep	sleep	sleep	sleep	sleep	sleep	sleep
 05	sleep	sleep	sleep	sleep	sleep	sleep	sleep
-06	sleep home	sleep home	sleep home	sleep home	sleep home	sleep home	sleep home
+06	home	home	home	home	home	home	home
 07	home	home	home	home	home	home	home
 08	home	home	home	home	home	home	home
-09	home	home	home away	home away	home	home	home
+09	home	home	away	away	home	home	home
 10	home	home	away	away	home	home	home
 11	home	home	away	away	home	home	home
 12	home	home	away	away	home	home	home
 13	home	home	away	away	home	home	home
 14	home	home	away	away	home	home	home
-15	home	home	away home	away home	home	home	home
+15	home	home	home	home	home	home	home
 16	home	home	home	home	home	home	home
 17	home	home	home	home	home	home	home
 18	home	home	home	home	home	home	home
-19	home sleep	home sleep	home sleep	home sleep	home sleep	home sleep	home sleep
+19	sleep	sleep	sleep	sleep	sleep	sleep	sleep
 20	sleep	sleep	sleep	sleep	sleep	sleep	sleep
 21	sleep	sleep	sleep	sleep	sleep	sleep	sleep
 22	sleep	sleep	sleep	sleep	sleep	sleep	sleep

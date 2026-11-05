@@ -34,7 +34,8 @@
     </a>
     <nav>
       {#each NAV as n (n.id)}
-        <a href={'#/' + n.id} class:active={view === n.id} aria-current={view === n.id ? 'page' : undefined}>{n.label}</a>
+        {@const on = view === n.id || (n.id === 'program' && view === 'modes')}
+        <a href={'#/' + n.id} class:active={on} aria-current={on ? 'page' : undefined}>{n.label}</a>
       {/each}
     </nav>
     <div class="status">

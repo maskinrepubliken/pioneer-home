@@ -42,7 +42,7 @@ export type LoadResult = { ok: true; config: Config; warnings: ConfigError[] } |
 const ID_RE = /^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)*$/;
 const DAY_NAMES: Record<string, number> = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7 };
 
-export const TABLE_FILES = ['settings', 'rooms', 'devices', 'cells', 'scenes', 'rules', 'sequences', 'alerts', 'history', 'week'] as const;
+export const TABLE_FILES = ['settings', 'rooms', 'devices', 'cells', 'scenes', 'rules', 'sequences', 'alerts', 'history', 'week', 'modes'] as const;
 /** Older layouts: still read when present so a checkout can be migrated one table at a time. */
 const LEGACY_FILES = ['vars', 'derived'] as const;
 
@@ -167,11 +167,15 @@ export function loadConfig(dir: string): LoadResult {
   for (const id of rooms.keys()) cells.set(`program.${id}`, { id: `program.${id}`, type: 'number', kind: 'system', settable: false, transient: false });
 
   // ---- week: the heating modes of each hour of the week (week.tsv) --------------------------
-  // Columns `hour` (0-23) and mon..sun; a cell holds one mode id, or several (a transition), or nothing.
-  // Every mode in it, and every <mode> of a cell named heat_use_<mode>, gets the system cell week.<mode>.
+  // Columns `hour` (0-23) and mon..sun; a cell holds one mode id (or several, an explicit transition), or nothing.
+  // The modes are modes.tsv's (a mode the week uses must be there); without modes.tsv, every mode in the week and
+  // every <mode> of a cell named heat_use_<mode>. Each gets the system cell week.<mode>.
   const schedule: WeekSchedule = { modes: [], slots: new Map() };
+  const modesTb = t('modes');
+  const modeIds = modesTb.rows.map((r) => r.cells['id'] ?? '').filter((id) => /^[a-z_][a-z0-9_]*$/.test(id));
   {
     const tb = t('week');
+    for (const m of modeIds) if (!schedule.modes.includes(m)) schedule.modes.push(m);
     const addMode = (m: string) => {
       if (!schedule.modes.includes(m)) schedule.modes.push(m);
     };
@@ -193,14 +197,17 @@ export function loadConfig(dir: string): LoadResult {
         const modes = parseModes(row.cells[day] ?? '');
         for (const m of modes) {
           if (!/^[a-z_][a-z0-9_]*$/.test(m)) err(tb, row, `bad mode "${m}" (lowercase ASCII letters, digits and _)`, day);
+          else if (modeIds.length && !modeIds.includes(m)) err(tb, row, `unknown mode "${m}" (modes.tsv has: ${modeIds.join(', ')})`, day);
           else addMode(m);
         }
         if (modes.length) schedule.slots.set(slotKey(i + 1, hour), modes);
       });
     }
-    for (const row of t('cells').rows) {
-      const m = /^heat_use_([a-z_][a-z0-9_]*)$/.exec(row.cells['id'] ?? '');
-      if (m) addMode(m[1]!);
+    if (!modeIds.length) {
+      for (const row of t('cells').rows) {
+        const m = /^heat_use_([a-z_][a-z0-9_]*)$/.exec(row.cells['id'] ?? '');
+        if (m) addMode(m[1]!);
+      }
     }
     for (const m of schedule.modes) cells.set(`week.${m}`, { id: `week.${m}`, type: 'boolean', kind: 'system', settable: false, transient: false });
   }
@@ -369,6 +376,55 @@ export function loadConfig(dir: string): LoadResult {
     return out;
   };
 
+  // ---- modes: the heating modes (modes.tsv) become derived cells, compiled with the others below --------
+  // A row per mode: id, name, and a column per room (an id from rooms.tsv) with the room's temperature in that mode,
+  // a number or a formula; empty = heat_cold. Compiled to heat_use_<mode> (in force now: the week schedule's in
+  // heat_mode program, else the mode chosen), <room>_<mode>, heat_transition (two modes at once) and per room
+  // <room>_comfort (the warmest mode in force, less heat_overlap_slack in a transition, never below heat_cold).
+  const modeFormulaRows = (): { tb: TsvTable; row: TsvRow; col: string }[] => {
+    const tb = modesTb;
+    if (!tb.rows.length) return [];
+    errors.push(...requireColumns(tb, ['id', 'name']));
+    const cellIds = new Set(cellsTb.rows.map((r) => r.cells['id'] ?? ''));
+    for (const need of ['heat_mode', 'heat_cold', 'heat_overlap_slack']) {
+      if (!cellIds.has(need)) err(tb, tb.rows[0]!, `modes.tsv needs the cell ${need} in cells.tsv`, 'id');
+    }
+    const roomCols = tb.header.filter((h) => !['id', 'name', 'note'].includes(h));
+    for (const r of roomCols) if (!rooms.has(r)) err(tb, tb.rows[0]!, `column "${r}" is not a room (rooms.tsv has: ${[...rooms.keys()].join(', ')})`, r);
+    const out: { tb: TsvTable; row: TsvRow; col: string }[] = [];
+    const ids: string[] = [];
+    for (const row of tb.rows) {
+      const id = row.cells['id'] ?? '';
+      if (!/^[a-z_][a-z0-9_]*$/.test(id)) {
+        err(tb, row, `bad mode id "${id}" (lowercase ASCII letters, digits and _)`, 'id');
+        continue;
+      }
+      if (ids.includes(id)) {
+        err(tb, row, `mode "${id}" is defined more than once`, 'id');
+        continue;
+      }
+      ids.push(id);
+      const name = row.cells['name'] || id;
+      const at = (cells: Record<string, string>, col: string) => ({ tb, row: { line: row.line, cells: { group: 'heating', ...cells } }, col });
+      out.push(at({ id: `heat_use_${id}`, name, formula: `IF(heat_mode = "program", COALESCE(week.${id}, FALSE), heat_mode = "${id}")` }, 'id'));
+      for (const r of roomCols) {
+        if (!rooms.has(r)) continue;
+        out.push(at({ id: `${r}_${id}`, room: r, name, formula: (row.cells[r] ?? '').trim() || 'heat_cold' }, r));
+      }
+    }
+    if (ids.length) {
+      const first = tb.rows[0]!;
+      const atFirst = (cells: Record<string, string>) => ({ tb, row: { line: first.line, cells: { group: 'heating', ...cells } }, col: 'id' });
+      out.push(atFirst({ id: 'heat_transition', name: 'Övergång', formula: `(${ids.map((m) => `IF(heat_use_${m}, 1, 0)`).join(' + ')}) >= 2` }));
+      for (const r of roomCols) {
+        if (!rooms.has(r)) continue;
+        const warmest = `MAX(${ids.map((m) => `IF(heat_use_${m}, ${r}_${m}, heat_cold)`).join(', ')})`;
+        out.push(atFirst({ id: `${r}_comfort`, room: r, name: 'Lägets temperatur', formula: `MAX(heat_cold, ${warmest} - IF(heat_transition, heat_overlap_slack, 0))` }));
+      }
+    }
+    return out;
+  };
+
   // ---- derived (typed in dependency order) ----------------------------------------------
   const derived = new Map<string, DerivedDef>();
   {
@@ -378,6 +434,7 @@ export function loadConfig(dir: string): LoadResult {
       ...cellsTb.rows.filter((row) => (row.cells['formula'] ?? '') !== '').map((row) => ({ tb: cellsTb, row })),
       ...legacy.rows.map((row) => ({ tb: legacy, row })),
       ...alertFormulaRows(),
+      ...modeFormulaRows(),
     ];
     const pending: { tb: TsvTable; row: TsvRow; col: string; id: string; ast: Ast; refs: string[]; room: string | null; group: ApplianceGroup; name: string }[] = [];
     for (const { tb, row, col = 'formula' } of formulaRows) {

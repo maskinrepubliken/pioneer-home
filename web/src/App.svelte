@@ -4,6 +4,7 @@
   import Footer from './components/Footer.svelte';
   import Heat from './views/Heat.svelte';
   import Program from './views/Program.svelte';
+  import Modes from './views/Modes.svelte';
   import Live from './views/Live.svelte';
   import Tables from './views/Tables.svelte';
   import Trace from './views/Trace.svelte';
@@ -52,6 +53,8 @@
     <Heat />
   {:else if route.view === 'program'}
     <Program />
+  {:else if route.view === 'modes'}
+    <Modes />
   {:else if route.view === 'live'}
     <Live />
   {:else if route.view === 'tables'}

@@ -1,14 +1,15 @@
 <script lang="ts">
   /**
    * The week schedule (week.tsv) as a grid to paint: 24 hours down, Monday to Sunday across. Choose a mode as the
-   * brush and tap or drag over hours; with "Övergång" on, the brush is added to an hour instead (two modes = a
-   * transition) and taken away again when it is there. Saved through PUT /api/tables/week.tsv, which validates first.
-   * Each mode has its own fill and letter, so the grid reads on an e-ink panel too.
+   * brush and tap or drag over hours; each hour has one mode. Where the mode changes, the new mode's first hour is a
+   * transition by itself (both modes, drawn split; lib/week.ts inForce, as the engine does). Saved through
+   * PUT /api/tables/week.tsv, which validates first. Each mode has its own fill and letter, so the grid reads on an
+   * e-ink panel too. The modes themselves are edited on the Lägen page.
    */
   import { saveTable } from '../lib/api';
   import { heatModes } from '../lib/heat';
   import { home, notify } from '../lib/state.svelte';
-  import { DAY_NAMES, parseWeek, serializeWeek, slotOf, type WeekGrid } from '../lib/week';
+  import { DAY_NAMES, inForce, parseWeek, serializeWeek, slotOf, type WeekGrid } from '../lib/week';
 
   const modes = $derived(heatModes(Object.values(home.cells)));
   const original = $derived(home.tables?.files?.['week.tsv'] ?? '');
@@ -25,7 +26,6 @@
   $effect(() => {
     if (brush === null && modes.length) brush = modes[0]!.id;
   });
-  let transition = $state(false);
 
   /** Fills by a mode's place in the list: light, dark, outlined; a letter on each. */
   const FILLS = ['ochre', 'ink', 'line', 'forest', 'rust'];
@@ -33,15 +33,10 @@
   const letter = (id: string) => (modes.find((m) => m.id === id)?.name ?? id).slice(0, 1).toUpperCase();
   const nameOf = (id: string) => modes.find((m) => m.id === id)?.name ?? id;
 
-  function paint(day: number, hour: number, first: boolean) {
+  function paint(day: number, hour: number) {
     if (!brush) return;
     const cur = grid[day]![hour]!;
-    let next: string[];
-    if (!transition) next = [brush];
-    else if (cur.includes(brush)) next = cur.length > 1 ? cur.filter((m) => m !== brush) : cur;
-    else next = [...cur.slice(-1), brush];
-    // while dragging, a transition brush only adds (taking away belongs to a single tap)
-    if (!first && transition && next.length < cur.length) return;
+    const next = [brush];
     if (next.join(' ') !== cur.join(' ')) {
       grid[day]![hour] = next;
       dirty = true;
@@ -60,7 +55,7 @@
     if (!c) return;
     painting = true;
     lastCell = `${c.day}:${c.hour}`;
-    paint(c.day, c.hour, true);
+    paint(c.day, c.hour);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     e.preventDefault();
   }
@@ -69,7 +64,7 @@
     const c = cellAt(e.clientX, e.clientY);
     if (!c || `${c.day}:${c.hour}` === lastCell) return;
     lastCell = `${c.day}:${c.hour}`;
-    paint(c.day, c.hour, false);
+    paint(c.day, c.hour);
   }
   function up() {
     painting = false;
@@ -113,10 +108,7 @@
         <span class="sw {fill(m.id)}" aria-hidden="true">{letter(m.id)}</span>{m.name}
       </button>
     {/each}
-    <label class="trans">
-      <input type="checkbox" bind:checked={transition} />
-      Lägg till som övergång
-    </label>
+    <a class="small edit" href="#/modes">Redigera lägen</a>
   </div>
 
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -126,7 +118,7 @@
     {#each Array.from({ length: 24 }, (_, h) => h) as h (h)}
       <span class="hour">{String(h).padStart(2, '0')}</span>
       {#each DAY_NAMES as _, day (day)}
-        {@const cell = grid[day]![h]!}
+        {@const cell = inForce(grid, day, h)}
         <span
           class="cell"
           class:now={day === now.day && h === now.hour}
@@ -142,7 +134,7 @@
 
   <p class="legend small">
     {#each modes as m (m.id)}<span><span class="sw {fill(m.id)}" aria-hidden="true">{letter(m.id)}</span>{m.name}</span>{/each}
-    <span>två i samma timme = övergång (det varmaste läget minus en grad)</span>
+    <span>delad ruta = övergång, första timmen efter ett byte (det varmaste läget minus {home.cells['heat_overlap_slack']?.value ?? 1} °C)</span>
   </p>
   {#if errors.length}<p class="errors" role="alert">{errors.join(' · ')}</p>{/if}
   <div class="actions">
@@ -184,11 +176,8 @@
     color: var(--paper);
     border-color: var(--ink);
   }
-  .trans {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
-    font-size: 14px;
+  .edit {
+    margin-left: auto;
   }
   .grid {
     display: grid;

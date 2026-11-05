@@ -1,7 +1,7 @@
 /**
- * week.tsv, the heating's week schedule, for the editor on the Program page: the modes of every hour of the week.
+ * week.tsv, the heating's week schedule, for the editor on the Program page: the mode of every hour of the week.
  * Pure functions, no Svelte. Mirrors engine/src/core/schedule.ts: columns `hour` (0-23) and mon..sun, one mode id per
- * cell, or several (a transition), separated by spaces.
+ * cell; where the mode changes, the new mode's first hour is a transition (both in force), see `inForce`.
  */
 import { parseTsv } from './tsv';
 
@@ -48,17 +48,26 @@ export function slotOf(ms: number): { day: number; hour: number } {
 
 const same = (a: string[], b: string[]) => a.length === b.length && a.every((m) => b.includes(m));
 
+/** The modes in force in an hour: its own, plus the hour before's when that was another mode (a transition). */
+export function inForce(grid: WeekGrid, day: number, hour: number): string[] {
+  const own = grid[day]![hour]!;
+  const prevDay = hour === 0 ? (day + 6) % 7 : day;
+  const before = grid[prevDay]![(hour + 23) % 24]!;
+  if (own.length !== 1 || !before.length || before.includes(own[0]!)) return own;
+  return [before[before.length - 1]!, own[0]!];
+}
+
 /** The next hour (within a week) whose modes differ from now's: when, and its modes. */
 export function nextChange(grid: WeekGrid, nowMs: number): { at: number; modes: string[] } | null {
   const { day, hour } = slotOf(nowMs);
-  const current = grid[day]![hour]!;
+  const current = inForce(grid, day, hour);
   const startOfHour = new Date(nowMs);
   startOfHour.setMinutes(0, 0, 0);
   for (let k = 1; k <= 7 * 24; k++) {
     const at = new Date(startOfHour.getTime());
     at.setHours(at.getHours() + k);
     const s = slotOf(at.getTime());
-    const modes = grid[s.day]![s.hour]!;
+    const modes = inForce(grid, s.day, s.hour);
     if (!same(modes, current)) return { at: at.getTime(), modes };
   }
   return null;
