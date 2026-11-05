@@ -27,7 +27,7 @@
 
 <header>
   <div class="bar">
-    <a class="brand" href="#/start" aria-label={title}>
+    <a class="brand" href="#/heat" aria-label={title}>
       <span class="dot" class:ok={home.connected} title={home.connected ? 'ansluten' : 'frånkopplad, återansluter…'}></span>
       <span class="title">{title}</span>
       <span class="conn">{home.connected ? 'ansluten' : 'frånkopplad'}</span>

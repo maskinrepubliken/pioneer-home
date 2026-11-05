@@ -1,14 +1,12 @@
 <script lang="ts">
   /**
-   * The heating mode: what is in force now and the buttons to choose Program (the week schedule, heated by price and
-   * weather), a mode to hold (Hemma, Sova, Borta: the heat_use_<mode> cells) or Manuellt. On the start page large
-   * (a button per line with what it means), on Värme compact (one row). See lib/heat.ts for the cells it reads.
+   * The heating mode, at the top of Värme: what is in force now, the next switch of the week schedule, the buttons to
+   * choose Program (the week schedule, heated by price and weather), a mode to hold (Hemma, Sova, Borta: the
+   * heat_use_<mode> cells) or Manuellt, and what the chosen one means. See lib/heat.ts for the cells it reads.
    */
   import { MANUAL, MANUAL_NAME, PROGRAM, PROGRAM_NAME, heatModes, heatState } from '../lib/heat';
   import { DAY_NAMES, nextChange, parseWeek, slotOf } from '../lib/week';
   import { home, sendAction } from '../lib/state.svelte';
-
-  let { size = 'compact' }: { size?: 'compact' | 'large' } = $props();
 
   const modes = $derived(heatModes(Object.values(home.cells)));
   const heat = $derived(heatState(home.cells));
@@ -42,7 +40,7 @@
   }
 </script>
 
-<section class="picker {size}" aria-labelledby="h-mode">
+<section class="picker" aria-labelledby="h-mode">
   <p class="eyebrow" id="h-mode">{eyebrow}</p>
   <h1 class="mode">{title}</h1>
   <p class="status" aria-live="polite">
@@ -67,10 +65,11 @@
         <button class="choice" class:chosen role="radio" aria-checked={chosen} disabled={choosing !== null} onclick={() => choose(c.id)}>
           <span class="hole" class:filled={chosen} aria-hidden="true"></span>
           <span class="cname">{c.name}</span>
-          {#if size === 'large'}<span class="what">{c.what}</span>{/if}
         </button>
       {/each}
     </div>
+    {@const chosen = choices.find((c) => c.id === heat.mode)}
+    {#if chosen}<p class="what">{chosen.name}: {chosen.what}.</p>{/if}
   {/if}
 </section>
 
@@ -115,11 +114,6 @@
     margin-top: var(--space-4);
     max-width: 680px;
   }
-  .large .choices {
-    grid-template-columns: 1fr;
-    gap: var(--space-2);
-    max-width: 520px;
-  }
   .choice {
     display: inline-flex;
     align-items: center;
@@ -138,19 +132,10 @@
     cursor: pointer;
     min-width: 0;
   }
-  .large .choice {
-    justify-content: flex-start;
-    min-height: 56px;
-    padding: 8px 20px;
-    gap: var(--space-3);
-    font-size: 18px;
-  }
   .what {
-    margin-left: auto;
-    font-family: var(--font-ui);
+    margin: var(--space-2) 0 0;
     font-size: 13px;
-    font-weight: 400;
-    text-align: right;
+    line-height: 1.45;
   }
   .choice:hover {
     background: var(--surface-ink);
@@ -176,10 +161,6 @@
     border: 1.5px solid currentColor;
     flex-shrink: 0;
   }
-  .large .hole {
-    width: 14px;
-    height: 14px;
-  }
   .hole.filled {
     background: currentColor;
   }
@@ -190,20 +171,13 @@
       padding: var(--space-4);
       border-radius: var(--radius-card);
     }
-    .compact .choices {
+    .choices {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
-    .compact .choice {
+    .choice {
       font-size: 14px;
       gap: 5px;
       padding: 6px 4px;
-    }
-    .large .choice {
-      padding: 8px 14px;
-      font-size: 17px;
-    }
-    .what {
-      font-size: 12px;
     }
   }
 </style>
