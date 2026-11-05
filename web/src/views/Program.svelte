@@ -2,8 +2,9 @@
   /**
    * Program: the heating planned by price and weather (engine/src/adapters/program.ts, GET /api/program) within the
    * comfort of the week schedule (week.tsv, edited here) or of the mode chosen. What it steers by now, the week
-   * schedule to paint, what the coming hours cost with the planning and without it, the plan hour by hour (the same strips as Värme's history), each room's planned
-   * temperature against its comfort, and each room's learnt heating curve with what the model says in words.
+   * schedule to paint, what the coming hours are expected to cost, the plan hour by hour (the same strips as Värme's
+   * history), and per room the temperature it is expected to have, what its thermostats will be set to and when, and
+   * its learnt heating curve with what the model says in words.
    */
   import { onMount } from 'svelte';
   import Chart from '../components/Chart.svelte';
@@ -51,11 +52,14 @@
     switching = false;
   }
 
-  const planned = $derived((program?.rooms ?? []).filter((r) => r.plan && r.schedule));
+  const planned = $derived((program?.rooms ?? []).filter((r) => r.plan));
   const planCost = $derived(planned.reduce((s, r) => s + r.plan!.cost, 0));
-  const scheduleCost = $derived(planned.reduce((s, r) => s + r.schedule!.cost, 0));
   const planEnergy = $derived(planned.reduce((s, r) => s + r.plan!.energy, 0));
-  const scheduleEnergy = $derived(planned.reduce((s, r) => s + r.schedule!.energy, 0));
+  /** the cost of the first 24 hours of the plan */
+  const dayCost = $derived.by(() => {
+    const t0 = planned[0]?.plan?.steps[0]?.t ?? 0;
+    return planned.reduce((n, r) => n + r.plan!.steps.filter((s) => s.t < t0 + 86_400_000).reduce((m, s) => m + s.cost, 0), 0);
+  });
   const horizonEnd = $derived.by(() => {
     const steps = planned[0]?.plan?.steps ?? [];
     return steps.length ? steps[steps.length - 1]!.t + 900_000 : null;
@@ -80,16 +84,30 @@
     };
   });
 
-  /** Planned temperature (end of each quarter), the comfort, and the temperature if the schedule were followed. */
+  /** The temperature the room is expected to have (end of each quarter), what the thermostats are set to, and the mode's. */
   function temperatureSeries(r: ProgramRoom): Series[] {
     const end = (t: number) => (t + 900_000) / 1000;
     return [
-      { label: 'Programmet', points: r.plan!.steps.map((s) => [end(s.t), s.tend] as [number, number]) },
-      { label: 'Utan planering', points: r.schedule!.steps.map((s) => [end(s.t), s.tend] as [number, number]) },
-      { label: 'Komfort', points: r.plan!.steps.map((s) => [s.t / 1000, s.comfort] as [number, number]), stepped: true, dash: true },
-      { label: 'Lägst', points: r.plan!.steps.map((s) => [s.t / 1000, s.floor] as [number, number]), stepped: true, dash: true },
+      { label: 'Väntad temperatur', points: r.plan!.steps.map((s) => [end(s.t), s.tend] as [number, number]) },
+      { label: 'Termostaten', points: r.setpoints.map((s) => [s.t / 1000, s.setpoint] as [number, number]), stepped: true },
+      { label: 'Lägets temperatur', points: r.plan!.steps.map((s) => [s.t / 1000, s.comfort] as [number, number]), stepped: true, dash: true },
     ];
   }
+
+  /** When the thermostats change setpoint in the coming hours: now, then every change (at most a dozen). */
+  function changes(r: ProgramRoom): { t: number; setpoint: number }[] {
+    const out: { t: number; setpoint: number }[] = [];
+    for (const s of r.setpoints) if (!out.length || out[out.length - 1]!.setpoint !== s.setpoint) out.push(s);
+    return out.slice(0, 12);
+  }
+  /** The thermostats of a room by their Swedish names. */
+  const heaterNames = (r: ProgramRoom) => r.heaters.map((h) => home.cells[`${h.id}.available`]?.name ?? h.id).join(', ');
+  const dayHour = (ms: number, first: boolean) => {
+    if (first) return 'nu';
+    const d = new Date(ms);
+    const today = new Date(program?.at ?? Date.now()).toDateString() === d.toDateString();
+    return today ? hhmm(ms) : `${d.toLocaleDateString('sv-SE', { weekday: 'short' })} ${hhmm(ms)}`;
+  };
 
   const num1 = (v: number) => v.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   const num2 = (v: number) => v.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -161,19 +179,19 @@
       </header>
       <div class="totals">
         <div class="total">
-          <span class="label">Med programmet</span>
+          <span class="label">Kostnad</span>
           <b class="big">{kr(planCost)}</b>
-          <span class="sub">{num1(planEnergy)} kWh</span>
+          <span class="sub">varav {kr(dayCost)} närmaste dygnet</span>
         </div>
         <div class="total">
-          <span class="label">Utan planering</span>
-          <b class="big">{kr(scheduleCost)}</b>
-          <span class="sub">{num1(scheduleEnergy)} kWh</span>
+          <span class="label">Energi</span>
+          <b class="big">{num1(planEnergy)} kWh</b>
+          <span class="sub">{planned.map((r) => `${r.name} ${num1(r.plan!.energy)}`).join(' · ')}</span>
         </div>
         <div class="total">
-          <span class="label">Skillnad</span>
-          <b class="big">{kr(Math.max(0, scheduleCost - planCost))}</b>
-          <span class="sub">{scheduleCost > 0 ? Math.round((1 - planCost / scheduleCost) * 100) : 0} % mindre</span>
+          <span class="label">Snittpris</span>
+          <b class="big">{planEnergy > 0 ? kr(planCost / planEnergy) : '—'}</b>
+          <span class="sub">per kWh, med moms och påslag</span>
         </div>
       </div>
       <HeatStrips hours={hourly.hours} outdoor={hourly.outdoor} price={hourly.price} sources={hourly.sources} ahead />
@@ -191,7 +209,7 @@
         {#if r.setpoint !== null}<span class="pill" class:on={mode !== MANUAL}>{mode !== MANUAL ? 'mål nu' : 'skulle ha'} {formatQuantity(r.setpoint, '°C')}</span>{/if}
       </header>
       {#if r.note}<p class="aside">Ingen plan: {r.note}.</p>{/if}
-      {#if r.plan && r.schedule}
+      {#if r.plan}
         <Chart
           since={r.plan.steps[0]!.t / 1000}
           until={(r.plan.steps[r.plan.steps.length - 1]!.t + 900_000) / 1000}
@@ -200,9 +218,17 @@
           series={temperatureSeries(r)}
           height={narrow ? 160 : 200}
         />
-        <p class="small faint">
-          Med planering: {kr(r.plan.cost)}, saknar {num1(r.plan.shortfall)} grad·timmar. Utan: {kr(r.schedule.cost)}, saknar {num1(r.schedule.shortfall)}.
-        </p>
+        <p class="small faint">Väntad kostnad {kr(r.plan.cost)} ({num1(r.plan.energy)} kWh) de kommande {Math.round(r.plan.steps.length / 4)} timmarna.</p>
+      {/if}
+      {#if r.setpoints.length}
+        <div class="sets">
+          <h3>{mode === MANUAL ? 'Termostaterna skulle ställas' : 'Termostaterna ställs'}{#if r.heaters.length} <span class="faint">({heaterNames(r)})</span>{/if}</h3>
+          <ol>
+            {#each changes(r) as c, i (c.t)}
+              <li><span class="when">{dayHour(c.t, i === 0)}</span> <b class="value">{formatQuantity(c.setpoint, '°C')}</b></li>
+            {/each}
+          </ol>
+        </div>
       {/if}
       {#if r.model && r.curve.length}
         <div class="model">
@@ -332,6 +358,33 @@
     margin-top: var(--space-4);
     padding-top: var(--space-4);
     border-top: 1px solid var(--line);
+  }
+  .sets {
+    margin-top: var(--space-3);
+  }
+  .sets h3 {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0 0 var(--space-1);
+  }
+  .sets ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    font-size: 14px;
+  }
+  .sets li {
+    white-space: nowrap;
+  }
+  .sets li .value,
+  .sets h3 .faint {
+    margin-left: 0.35em;
+  }
+  .when {
+    color: var(--ink-muted);
   }
   .facts {
     margin: 0;

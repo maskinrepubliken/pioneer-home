@@ -212,7 +212,8 @@ export interface ProgramRoom {
   observed: { tout: number; kw: number }[];
   curveTemp: number;
   plan: Plan | null;
-  schedule: Plan | null;
+  /** the thermostats' setpoint per quarter: the plan's, or the comfort without a plan */
+  setpoints: { t: number; setpoint: number }[];
   setpoint: number | null;
   note: string | null;
 }

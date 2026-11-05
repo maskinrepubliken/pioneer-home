@@ -1,7 +1,7 @@
 /**
  * The program: learns each heated room's thermal model from history and plans its heating for the coming hours at
  * the lowest cost (core/thermal.ts, core/planner.ts). Feeds the system cells `program.<room>` (the setpoint for now)
- * and GET /api/program (models, heating curves, the plan and what following the schedule would cost).
+ * and GET /api/program (models, heating curves, the plan and the thermostats' setpoints ahead).
  *
  * A room takes part when it has a `<room>_target` cell and thermostats with rated watts (devices.tsv). Its comfort
  * for each quarter comes from the modes in force: the week schedule (week.tsv) in heat_mode program, else the
@@ -17,7 +17,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { Logger } from 'pino';
 import type { Engine } from '../core/engine.js';
-import { comfortBand, followSetpoints, planRoom, type Plan, type PlanInput } from '../core/planner.js';
+import { comfortBand, planRoom, type Plan, type PlanInput } from '../core/planner.js';
 import { buildSamples, fitModel, holdingPower, iconOctas, solarElevation, sunFactor, usable, type Points, type RoomModel } from '../core/thermal.js';
 import type { Value } from '../formula/values.js';
 import { scheduleAt } from '../core/schedule.js';
@@ -52,7 +52,8 @@ export interface ProgramRoom {
   /** the temperature the curve is drawn for */
   curveTemp: number;
   plan: Plan | null;
-  schedule: Plan | null;
+  /** what the room's thermostats are set to, quarter by quarter: the plan's setpoints, or the comfort without a plan */
+  setpoints: { t: number; setpoint: number }[];
   /** the setpoint fed to program.<room> now */
   setpoint: number | null;
   note: string | null;
@@ -251,7 +252,7 @@ export class ProgramService {
           observed: saved?.observed ?? [],
           curveTemp,
           plan: null,
-          schedule: null,
+          setpoints: comfort.every((c) => typeof c === 'number') ? times.map((t, k) => ({ t, setpoint: comfort[k] as number })) : [],
           setpoint: null,
           note: null,
         };
@@ -266,8 +267,7 @@ export class ProgramService {
           const input: PlanInput[] = env.map((e, k) => ({ ...e, comfort: comfort[k] as number, ...band[k]! }));
           const opts = { stepH: STEP_H, maxKw, shortfallCost };
           entry.plan = planRoom(model, t0, input, opts);
-          // the comparison: the same comfort held exactly, without planning
-          entry.schedule = followSetpoints(model, t0, input.map((s) => ({ ...s, setpoint: s.comfort })), opts);
+          entry.setpoints = entry.plan.steps.map((s) => ({ t: s.t, setpoint: s.setpoint }));
           entry.setpoint = entry.plan.steps[0]?.setpoint ?? null;
         }
         inputs.push({ cell: `program.${room.id}`, value: entry.setpoint });

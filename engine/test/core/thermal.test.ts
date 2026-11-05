@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildSamples, fitModel, holdingPower, iconOctas, meanOver, solarElevation, step, sunFactor, usable, type RoomModel, type ThermalSample } from '../../src/core/thermal.js';
-import { comfortBand, followSetpoints, planRoom, type PlanInput } from '../../src/core/planner.js';
+import { comfortBand, planRoom, type PlanInput } from '../../src/core/planner.js';
 
 const LAT = 57.6;
 const LON = 13.15;
@@ -106,13 +106,6 @@ describe('planner', () => {
     const at6 = plan.steps.find((s) => s.t === 6 * 3_600_000)!;
     expect(at6.tin).toBeGreaterThan(17.5);
     expect(Math.max(...plan.steps.map((s) => s.tend))).toBeLessThanOrEqual(19.55);
-  });
-
-  it('costs less than holding the schedule exactly', () => {
-    const input = day();
-    const plan = planRoom(model, 18, input, opts);
-    const schedule = followSetpoints(model, 18, input.map((s) => ({ ...s, setpoint: s.comfort })), opts);
-    expect(plan.cost).toBeLessThan(schedule.cost);
   });
 
   it('does not heat a warm room whose comfort is low, and tells the thermostats the floor', () => {

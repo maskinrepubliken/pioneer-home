@@ -149,24 +149,3 @@ export function planRoom(m: RoomModel, t0: number, input: PlanInput[], opts: Pla
   }
   return totals(steps, dt);
 }
-
-/**
- * What following the schedule costs: an ideal thermostat that reaches each step's `setpoint` by its end, within the
- * heaters' power. The comparison for the program's plan.
- */
-export function followSetpoints(m: RoomModel, t0: number, input: (PlanInput & { setpoint: number })[], opts: PlanOptions): Plan {
-  const dt = opts.stepH;
-  const e = Math.exp(-m.b * dt);
-  const steps: PlannedStep[] = [];
-  let t = t0;
-  for (const s of input) {
-    // the power whose steady state brings t to the setpoint in one step
-    const tInf = (s.setpoint - t * e) / (1 - e);
-    const want = (m.b * tInf - m.b * s.tout - m.c * s.sun - m.d) / m.a;
-    const power = Math.min(Math.max(want, 0), opts.maxKw);
-    const te = step(m, t, s.tout, power, s.sun, dt);
-    steps.push({ ...s, power, tin: t, tend: te, cost: power * dt * s.price });
-    t = te;
-  }
-  return totals(steps, dt);
-}
