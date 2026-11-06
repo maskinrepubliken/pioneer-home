@@ -81,6 +81,19 @@ export type AlertLevel = (typeof ALERT_LEVELS)[number];
  * alerts.tsv row: a banner at the top of Live while `if` is TRUE. Compiled into two derived cells,
  * `alert_<id>` (the condition) and `alert_<id>_text` (the text with its {formulas} filled in).
  */
+/**
+ * events.tsv: something that changed the house or what is measured (a sensor moved, a heater counted from now on,
+ * windows insulated). The pages mark it in every chart, so statistics before and after it are read as different eras.
+ */
+export interface EventDef extends Located {
+  /** local date and time as written: `YYYY-MM-DD` or `YYYY-MM-DD HH:MM` */
+  at: string;
+  /** epoch ms, in the house's time zone */
+  ms: number;
+  title: string;
+  note: string;
+}
+
 export interface AlertDef extends Located {
   id: string;
   level: AlertLevel;
@@ -210,6 +223,8 @@ export interface Config {
   latitude: number;
   longitude: number;
   alerts: AlertDef[];
+  /** events.tsv, oldest first */
+  events: EventDef[];
   /** week.tsv: the heating modes of each hour of the week */
   week: WeekSchedule;
 }

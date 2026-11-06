@@ -3,12 +3,16 @@
    * A single uPlot time-series chart. Series may have different timestamps; they are aligned with uPlot.join.
    * The title (with its unit) and the legend are drawn here, not by uPlot: the legend shows each series' latest
    * value, or the value under the cursor while hovering. Time axis in 24 h Swedish form. Dashed series are
-   * references (targets, outdoor). Rebuilds when data, width or the theme (data-theme on <html>) changes.
+   * references (targets, outdoor). Events (events.tsv, lib/events.ts) inside the span are marked with a dashed
+   * vertical line and their title, where one era of the statistics ends and the next begins. Rebuilds when data,
+   * width, events or the theme (data-theme on <html>) changes.
    */
   import uPlot from 'uplot';
   import { onMount } from 'svelte';
   import { formatQuantity, LOCALE } from '../lib/format';
   import type { Series } from '../lib/history';
+  import { labelRows, parseEvents } from '../lib/events';
+  import { home } from '../lib/state.svelte';
 
   let {
     title,
@@ -28,6 +32,8 @@
   // up there. On a dark paper (ink theme) the two surfaces sink into the card, so the light colours lead instead.
   const PALETTE_LIGHT = ['--ink', '--surface-forest', '--surface-rust', '--ink-muted', '--ochre'];
   const PALETTE_DARK = ['--ink', '--ochre', '--surface-rust', '--ink-muted', '--surface-forest'];
+
+  const events = $derived(parseEvents(home.tables?.files?.['events.tsv'] ?? ''));
 
   let host: HTMLDivElement;
   let plot: uPlot | null = null;
@@ -121,6 +127,38 @@
         })),
       ],
       hooks: {
+        draw: [
+          (u) => {
+            const [x0, x1] = [u.scales['x']!.min ?? 0, u.scales['x']!.max ?? 0];
+            const ctx = u.ctx;
+            const dpr = devicePixelRatio || 1;
+            ctx.save();
+            ctx.strokeStyle = css('--ink-muted');
+            ctx.fillStyle = css('--ink-muted');
+            ctx.lineWidth = dpr;
+            ctx.setLineDash([4 * dpr, 3 * dpr]);
+            ctx.font = `${11 * dpr}px ${css('--font-ui')}`;
+            const shownEvents = events
+              .filter((e) => e.t >= x0 && e.t <= x1)
+              .map((e) => {
+                const x = Math.round(u.valToPos(e.t, 'x', true)) + 0.5;
+                const label = e.title.length > 28 ? `${e.title.slice(0, 27)}…` : e.title;
+                const w = ctx.measureText(label).width;
+                // the title on the side with room, at the top of the plot
+                const tx = x + 4 * dpr + w > u.bbox.left + u.bbox.width ? x - 4 * dpr - w : x + 4 * dpr;
+                return { x, label, tx, w };
+              });
+            const rows = labelRows(shownEvents.map((e) => [e.tx, e.tx + e.w]));
+            shownEvents.forEach((e, k) => {
+              ctx.beginPath();
+              ctx.moveTo(e.x, u.bbox.top);
+              ctx.lineTo(e.x, u.bbox.top + u.bbox.height);
+              ctx.stroke();
+              ctx.fillText(e.label, e.tx, u.bbox.top + (12 + rows[k]! * 13) * dpr);
+            });
+            ctx.restore();
+          },
+        ],
         setCursor: [
           (u) => {
             const i = u.cursor.idx;
@@ -180,6 +218,7 @@
   $effect(() => {
     // Track the reactive inputs, then rebuild.
     void shown;
+    void events;
     void width;
     void since;
     void unit;

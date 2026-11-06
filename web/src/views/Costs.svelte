@@ -6,6 +6,8 @@
    * numbers are never read as the new period's.
    */
   import CostBars from '../components/CostBars.svelte';
+  import EventsPanel from '../components/EventsPanel.svelte';
+  import { parseEvents } from '../lib/events';
   import { api, ApiError, type PriceSlot } from '../lib/api';
   import { applianceOrder, computeCosts, costPerBucket, isUnreachable, kr, meanSpot, type CostResult } from '../lib/cost';
   import { formatQuantity, roomName } from '../lib/format';
@@ -160,6 +162,15 @@
   const paidPerKwh = $derived(totalKwh > 0 ? totalSek / totalKwh : null);
   const bucketRanges = $derived(period.buckets.map((b) => [b.from.getTime() / 1000, b.to.getTime() / 1000] as [number, number]));
   const bars = $derived(costs.map((c) => ({ label: c.label, values: costPerBucket(c, bucketRanges) })));
+  /** Events inside the period, placed in their bucket (2.5 = halfway through the third). */
+  const marks = $derived.by(() =>
+    parseEvents(home.tables?.files?.['events.tsv'] ?? '').flatMap((e) => {
+      const i = bucketRanges.findIndex(([a, b]) => e.t >= a && e.t < b);
+      if (i < 0) return [];
+      const [a, b] = bucketRanges[i]!;
+      return [{ pos: i + (e.t - a) / (b - a), title: e.title }];
+    }),
+  );
   const unknownShare = (c: CostResult) => (loadedFor ? Math.round((c.unknown / Math.max(loadedFor.until - loadedFor.since, 1)) * 100) : 0);
   const sek2 = (n: number) => n.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 </script>
@@ -211,7 +222,7 @@
       </div>
     </div>
 
-    <CostBars labels={[period.per]} series={bars} buckets={period.buckets.map((b) => b.label)} tickEvery={period.tickEvery} order={applianceOrder(names, (r) => roomName(r, home.rooms))} />
+    <CostBars labels={[period.per]} series={bars} buckets={period.buckets.map((b) => b.label)} tickEvery={period.tickEvery} order={applianceOrder(names, (r) => roomName(r, home.rooms))} {marks} />
 
     <table class="costs">
       <thead><tr><th>Apparat</th><th>Effekt</th><th>Energi</th><th>Kostnad</th><th>Andel</th></tr></thead>
@@ -236,6 +247,8 @@
         {/each}
       </tbody>
     </table>
+
+    <EventsPanel since={period.from.getTime() / 1000} until={period.to.getTime() / 1000} />
 
     <p class="note">
       Uppskattning: effekt × värmebehov (eller tid påslagen) × spotpris per kvart med moms ({Math.round((vat - 1) * 100)} %) plus påslag

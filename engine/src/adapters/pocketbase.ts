@@ -21,6 +21,8 @@ export interface PocketBaseOptions {
 
 export interface HistoryQuery {
   query(collection: string, sinceIso: string, untilIso: string, limit?: number): Promise<Record<string, unknown>[]>;
+  /** Changes fields of a written row (by its id); absent where rows cannot be changed. */
+  update?(collection: string, id: string, fields: Record<string, unknown>): Promise<void>;
 }
 
 export class PocketBaseSink implements HistorySink, HistoryQuery {
@@ -121,6 +123,15 @@ export class PocketBaseSink implements HistorySink, HistoryQuery {
       page++;
     }
     return items;
+  }
+
+  async update(collection: string, id: string, fields: Record<string, unknown>): Promise<void> {
+    if (this.opts.dryRun) {
+      this.log.info({ collection, id, fields }, 'history update (dry run)');
+      return;
+    }
+    await this.auth();
+    await this.pb.collection(collection).update(id, fields);
   }
 
   async close(): Promise<void> {

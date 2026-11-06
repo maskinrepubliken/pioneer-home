@@ -198,3 +198,22 @@ describe('devices.tsv watts', () => {
     expect(bad.errors[0]).toMatchObject({ file: 'devices.tsv', line: 2, column: 'watts' });
   });
 });
+
+describe('events.tsv', () => {
+  it('reads dates and times in the house time zone, oldest first', () => {
+    const res = loadConfig(tablesDir({ 'events.tsv': 'at\ttitle\tnote\n2026-12-01\tFönstren isolerade\t\n2026-11-05 16:00\tElementet räknas\tfrån nu\n' }));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.config.events.map((e) => e.title)).toEqual(['Elementet räknas', 'Fönstren isolerade']);
+    // 16:00 in Stockholm in November is 15:00 UTC
+    expect(new Date(res.config.events[0]!.ms).toISOString()).toBe('2026-11-05T15:00:00.000Z');
+    expect(res.config.events[0]!.note).toBe('från nu');
+  });
+
+  it('refuses a bad date or an empty title', () => {
+    const res = loadConfig(tablesDir({ 'events.tsv': 'at\ttitle\n5 nov\tFel\n2026-13-01\tFel månad\n2026-11-05\t\n' }));
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.errors.map((e) => e.line)).toEqual([2, 3, 4]);
+  });
+});

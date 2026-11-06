@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { formula } from '../formula/index.js';
 import { FormulaError, type Ast } from '../formula/api.js';
 import { parseDuration, parseLiteral, parseTimeOfDay, typeOf, type Value, type ValueType } from '../formula/values.js';
+import { wallClockToEpoch } from '../formula/time.js';
 import { getKind, KINDS, parseTargets } from '../core/kinds.js';
 import { WEEKDAY_IDS, parseModes, slotKey, type WeekSchedule } from '../core/schedule.js';
 import { ActionParseError, actionFormulas, parseActions } from './actions.js';
@@ -20,6 +21,7 @@ import {
   type ApplianceGroup,
   type ActionDef,
   type AlertDef,
+  type EventDef,
   type AlertLevel,
   type CellDef,
   type Config,
@@ -42,7 +44,7 @@ export type LoadResult = { ok: true; config: Config; warnings: ConfigError[] } |
 const ID_RE = /^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)*$/;
 const DAY_NAMES: Record<string, number> = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7 };
 
-export const TABLE_FILES = ['settings', 'rooms', 'devices', 'cells', 'scenes', 'rules', 'sequences', 'alerts', 'history', 'week', 'modes'] as const;
+export const TABLE_FILES = ['settings', 'rooms', 'devices', 'cells', 'scenes', 'rules', 'sequences', 'alerts', 'history', 'week', 'modes', 'events'] as const;
 /** Older layouts: still read when present so a checkout can be migrated one table at a time. */
 const LEGACY_FILES = ['vars', 'derived'] as const;
 
@@ -790,11 +792,39 @@ export function loadConfig(dir: string): LoadResult {
     for (const st of seq.steps) if (st.cancelIf) addSince(st.cancelIf);
   }
 
+  // ---- events: marks in the statistics where one era ends and the next begins --------------
+  const events: EventDef[] = [];
+  {
+    const tb = t('events');
+    if (tb.rows.length) errors.push(...requireColumns(tb, ['at', 'title']));
+    for (const row of tb.rows) {
+      const at = (row.cells['at'] ?? '').trim();
+      const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?$/.exec(at);
+      const title = (row.cells['title'] ?? '').trim();
+      if (!m) {
+        err(tb, row, `at must be a date, YYYY-MM-DD or YYYY-MM-DD HH:MM, got "${at}"`, 'at');
+        continue;
+      }
+      if (!title) {
+        err(tb, row, 'title is empty: what happened?', 'title');
+        continue;
+      }
+      const [, y, mo, d, h, mi] = m;
+      const ms = wallClockToEpoch(Number(y), Number(mo), Number(d), (Number(h ?? 0) * 60 + Number(mi ?? 0)) * 60_000, timezone);
+      if (Number.isNaN(ms) || Number(mo) < 1 || Number(mo) > 12 || Number(d) < 1 || Number(d) > 31 || Number(h ?? 0) > 23 || Number(mi ?? 0) > 59) {
+        err(tb, row, `"${at}" is not a real date and time`, 'at');
+        continue;
+      }
+      events.push({ at, ms, title, note: row.cells['note'] ?? '', file: tb.file, line: row.line });
+    }
+    events.sort((a, b) => a.ms - b.ms);
+  }
+
   if (errors.length) return { ok: false, errors, warnings };
   return {
     ok: true,
     warnings,
-    config: { dir, settings, rooms, devices, vars, derived, scenes, rules, sequences, alerts, history, cells, aliases, sinceTargets, timezone, latitude, longitude, week: schedule },
+    config: { dir, settings, rooms, devices, vars, derived, scenes, rules, sequences, alerts, events, history, cells, aliases, sinceTargets, timezone, latitude, longitude, week: schedule },
   };
 }
 

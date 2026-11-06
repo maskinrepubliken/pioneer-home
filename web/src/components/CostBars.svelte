@@ -3,9 +3,11 @@
    * Stacked bars: cost per bucket (hour or day), one segment per appliance. Drawn as SVG in pixels; the value of the
    * hovered or focused bar is shown above the chart, so it reads without a legend lookup. Fills are dark and
    * solid with a wide spread in lightness (lib/seriesFill.ts, readable on e-ink) and follow the appliance's name,
-   * never its rank.
+   * never its rank. Events (`marks`, from events.tsv) are dashed lines with their title, where one era of the
+   * statistics ends and the next begins.
    */
   import { kr } from '../lib/cost';
+  import { labelRows } from '../lib/events';
   import { seriesFill, seriesStroke } from '../lib/seriesFill';
 
   let {
@@ -14,6 +16,7 @@
     buckets,
     tickEvery = 1,
     order = [],
+    marks = [],
   }: {
     labels: string[];
     series: { label: string; values: number[] }[];
@@ -21,6 +24,8 @@
     tickEvery?: number;
     /** every appliance's label in fill order (lib/cost.ts applianceOrder); labels not in it come after, by name */
     order?: string[];
+    /** events: position in buckets (2.5 = halfway through the third bucket) and title */
+    marks?: { pos: number; title: string }[];
   } = $props();
 
   const slots = $derived([...order, ...series.map((s) => s.label).filter((l) => !order.includes(l)).sort((a, b) => a.localeCompare(b, 'sv'))]);
@@ -38,6 +43,16 @@
   let W = $state(0);
   const H = 180;
   const bw = $derived(W / Math.max(buckets.length, 1));
+  /** Event titles: right of the line where there is room, in rows so titles close together do not overlap. */
+  const titles = $derived.by(() => {
+    const spans = marks.map((m): [number, number] => {
+      const x = m.pos * bw;
+      const w = m.title.length * 6;
+      return x + 6 + w > W ? [x - 4 - w, x - 4] : [x + 4, x + 4 + w];
+    });
+    const rows = labelRows(spans);
+    return marks.map((m, k) => ({ right: spans[k]![0] < m.pos * bw, row: rows[k]! }));
+  });
 </script>
 
 <figure class="bars">
@@ -73,6 +88,12 @@
             {/if}
           {/each}
         </g>
+      {/each}
+      {#each marks as m, k (k)}
+        {@const x = m.pos * bw}
+        {@const tl = titles[k]!}
+        <line class="event" x1={x} x2={x} y1="0" y2={H} />
+        <text class="event-title" x={tl.right ? x - 4 : x + 4} y={10 + tl.row * 11} text-anchor={tl.right ? 'end' : 'start'}>{m.title}</text>
       {/each}
     </svg>
     </div>
@@ -186,5 +207,16 @@
   }
   .sw {
     flex-shrink: 0;
+  }
+  .event {
+    stroke: var(--ink-muted);
+    stroke-width: 1;
+    stroke-dasharray: 4 3;
+  }
+  .event-title {
+    font-family: var(--font-ui);
+    font-size: 11px;
+    fill: var(--ink-muted);
+    pointer-events: none;
   }
 </style>

@@ -7,11 +7,14 @@
    * Heat sources keep their colour by name (alphabetical), never by rank. For a plan, two strips come first: the
    * heating mode of each hour (a band in the week grid's fills, split in a transition) and each room's target per
    * quarter (stepped lines, one dash pattern per room). For history, a strip per room (after the outdoor ones): its
-   * measured temperature as a line and its target as a dashed step, all rooms on one scale.
+   * measured temperature as a line and its target as a dashed step, all rooms on one scale. Events (events.tsv)
+   * inside the hours are a dashed line through every strip, titled in the first, and named in the readout.
    */
   import { kr } from '../lib/cost';
   import { seriesFill, seriesStroke } from '../lib/seriesFill';
   import type { ModeFill } from '../lib/week';
+  import { eventWhen, labelRows, parseEvents } from '../lib/events';
+  import { home } from '../lib/state.svelte';
 
   interface HourMode {
     name: string;
@@ -187,6 +190,25 @@
   };
   const modeIn = (i: number) => (modes[i] ?? []).map((m) => m.name).join(' + ') || '—';
 
+  /** Events inside the hours, with their x. */
+  const marks = $derived.by(() => {
+    if (!n) return [];
+    const from = hours[0]!;
+    const to = hours[n - 1]! + 3600;
+    return parseEvents(home.tables?.files?.['events.tsv'] ?? '')
+      .filter((e) => e.t >= from && e.t < to)
+      .map((e) => ({ ...e, x: GUTTER + ((e.t - from) / 3600) * bw, hour: Math.floor((e.t - from) / 3600) }));
+  });
+  /** Where each title goes: right of its line where there is room, rows so titles close together do not overlap. */
+  const titles = $derived.by(() => {
+    const spans = marks.map((m): [number, number] => {
+      const w = m.title.length * 6;
+      return m.x + 6 + w > width ? [m.x - 4 - w, m.x - 4] : [m.x + 4, m.x + 4 + w];
+    });
+    const rows = labelRows(spans);
+    return marks.map((m, k) => ({ right: spans[k]![0] < m.x, row: rows[k]! }));
+  });
+
   const tempRange = $derived(range(outdoor));
   const priceRange = $derived(range(price.map((p) => (p === null ? null : p))));
   const hasSun = $derived(sun.some((v) => v !== null));
@@ -251,6 +273,7 @@
         <div><dt>Elpris</dt><dd class="value">{price[shown] === null ? '—' : `${num2(price[shown]!)} kr/kWh`}</dd></div>
         {#if sources.length}<div><dt>Kostnad</dt><dd class="value">{kr(sekTotal[shown] ?? 0)}</dd></div>{/if}
       </dl>
+      {#each marks.filter((m) => m.hour === shown) as m (m.t)}<span class="event-note">Händelse {eventWhen(m)}: {m.title}{#if m.note} ({m.note}){/if}</span>{/each}
     {/if}
   </figcaption>
 
@@ -345,6 +368,13 @@
                 <rect x={b.x} y={b.y} width={b.w} height={b.h} fill={b.c} stroke={b.s} stroke-width="1" shape-rendering="crispEdges" />
               {/each}
             {/if}
+            {#each marks as m, k (m.t)}
+              <line class="event" x1={m.x} x2={m.x} y1="0" y2={strip.h} />
+              {#if strip === STRIPS[0]}
+                {@const tl = titles[k]!}
+                <text class="event-title" x={tl.right ? m.x - 4 : m.x + 4} y={10 + tl.row * 11} text-anchor={tl.right ? 'end' : 'start'}>{m.title}</text>
+              {/if}
+            {/each}
             {#if shown !== null && active !== null}
               <rect class="cursor" x={x(shown)} y="0" width={Math.max(bw, 1)} height={strip.h} />
             {/if}
@@ -523,6 +553,23 @@
   .key line {
     stroke: var(--ink);
     stroke-width: 1.75;
+  }
+  /* an event: where one era of the statistics ends and the next begins */
+  .event {
+    stroke: var(--ink-muted);
+    stroke-width: 1;
+    stroke-dasharray: 4 3;
+  }
+  .event-title {
+    font-family: var(--font-ui);
+    font-size: 11px;
+    fill: var(--ink-muted);
+    pointer-events: none;
+  }
+  .event-note {
+    flex-basis: 100%;
+    font-size: 12px;
+    color: var(--ink);
   }
   .cursor {
     fill: none;

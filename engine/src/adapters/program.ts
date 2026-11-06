@@ -237,6 +237,35 @@ export class ProgramService {
     return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
   }
 
+  /**
+   * The estimate written so far, revised by what the model knows now: each of the heater's own history rows gets the
+   * share it would get today (its room temperature and setpoint, the outdoor temperature then). In the hold band the
+   * rows were written as 0 before there was a model (unknown cannot be stored), so a new model fills them in.
+   */
+  private async reviseLocal(h: { id: string; kw: number }, model: LocalHeaterModel, rows: Record<string, unknown>[], outdoor: Points): Promise<void> {
+    const update = this.opts.history.update?.bind(this.opts.history);
+    if (!update) return;
+    let changed = 0;
+    for (const r of rows) {
+      const id = r['id'];
+      const t = typeof r['when'] === 'string' ? Date.parse(r['when'].replace(' ', 'T')) / 1000 : NaN;
+      const tin = r['current'];
+      const sp = r['target'];
+      const tout = meanOver(outdoor, t - 1800, t + 1800, 3 * 3600);
+      if (typeof id !== 'string' || !Number.isFinite(t) || typeof tin !== 'number' || typeof sp !== 'number' || tout === null) continue;
+      const pi = localDemand(model, tin, tout, sp, h.kw);
+      if (pi === null || Math.abs(pi - (typeof r['pi'] === 'number' ? r['pi'] : -1)) < 1) continue;
+      try {
+        await update('heating', id, { pi, heating: pi > 0 });
+        changed++;
+      } catch (e) {
+        this.log.warn({ heater: h.id, id, err: (e as Error).message }, 'could not revise a heater history row');
+        return;
+      }
+    }
+    if (changed) this.log.info({ heater: h.id, rows: changed }, 'heater history revised by the new model');
+  }
+
   private async fit(rooms: { id: string; heaters: Heater[] }[]): Promise<void> {
     const until = Date.now();
     const learn = this.learnSince();
@@ -303,6 +332,7 @@ export class ProgramService {
       const model = fitLocalHeater(samples, h.kw, FIT_STEP_S);
       this.localModels.set(h.id, model);
       this.log.info({ heater: h.id, samples: samples.length, model }, 'local heater model fitted');
+      if (model) await this.reviseLocal(h, model, rows, outdoor);
     }
     this.fittedAt = Date.now();
     this.fittedWith = `${learn.text ?? ''}|${halfLife}`;

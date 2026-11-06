@@ -6,6 +6,7 @@
    * (see lib/history.ts), so a sensor's history is labelled with its Swedish device name.
    */
   import Chart from '../components/Chart.svelte';
+  import EventsPanel from '../components/EventsPanel.svelte';
   import OnOffChart from '../components/OnOffChart.svelte';
   import { api, ApiError } from '../lib/api';
   import { roomName, timeOnly } from '../lib/format';
@@ -173,6 +174,7 @@
   <section class="panel overview" aria-labelledby="h-overview">
     <h2 class="room" id="h-overview">Temperatur i rummen</h2>
     <Chart since={span.since} until={span.until} title="Medel per rum" unit="°C" series={overview} height={240} />
+    <EventsPanel since={span.since} until={span.until} />
   </section>
 
   <div class="rooms">
