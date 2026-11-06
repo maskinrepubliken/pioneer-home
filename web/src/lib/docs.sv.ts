@@ -280,14 +280,14 @@ export const TABLES: TableDoc[] = [
     group: 'system',
     purpose: 'Stora förändringar i huset eller i vad som mäts. Varje diagram markerar dem med en streckad linje, så statistiken före och efter läses som olika epoker.',
     whenEdit: 'När något ändras som syns i statistiken: en givare flyttas, en ny förbrukare börjar räknas, fönstren isoleras. Enklast med Ny händelse under Grafer eller Kostnader.',
-    example: '2026-12-01 14:00 · Fönstren isolerade · alla fönster i vardagsrummet',
+    example: '2026-12-01 14:00 · Fönstren isolerade · alla fönster på nedervåningen',
     about: [
       'En rad per händelse. Tiden är husets egen tid. Diagrammen på Värme, Program, Grafer och Kostnader drar en streckad linje där händelsen sker, med titeln, och listar händelserna i perioden.',
       'Motorn styr inte efter händelserna; de är bara anteckningar i statistiken.',
     ],
     columns: [
       { name: 'at', what: 'När: ett datum, eller datum och klockslag.', allowed: 'ÅÅÅÅ-MM-DD eller ÅÅÅÅ-MM-DD TT:MM', example: '2026-11-05 16:00' },
-      { name: 'title', what: 'Vad som hände, kort. Syns vid linjen i diagrammen.', example: 'Sovbodens panelvärmare räknas' },
+      { name: 'title', what: 'Vad som hände, kort. Syns vid linjen i diagrammen.', example: 'Elementet räknas' },
       { ...NOTE, example: 'kostnader före saknar den' },
     ],
   },
