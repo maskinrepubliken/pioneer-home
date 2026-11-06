@@ -21,3 +21,4 @@ floor2_sets_target	on floor2.setpoint	AND(CHANGED(floor2.last_seen), NOT(ISBLANK
 living_room_plan_follow	on living_room_plan	heat_mode <> "manual"	set living_room_target {living_room_plan}	yes	värmeläget sätter rummets måltemperatur när planen ändras
 study_plan_follow	on study_plan	heat_mode <> "manual"	set study_target {study_plan}	yes	värmeläget sätter rummets måltemperatur när planen ändras
 heat_mode_apply	on heat_mode	heat_mode <> "manual"	set living_room_target {living_room_plan}; set study_target {study_plan}	yes	väljs program eller ett läge (efter Manuellt) får rummen planens temperatur direkt
+heat_until_end		heat_until_passed	set heat_mode program; set heat_until NULL	yes	ett läge med sluttid (Värmes snabbval) går tillbaka till programmet när tiden är ute

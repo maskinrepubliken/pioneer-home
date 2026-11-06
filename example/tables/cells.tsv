@@ -25,6 +25,9 @@ program_learn_halflife	7				heating	Inlärningens halveringstid	dygn: så gammal
 program_learn_since			string		heating	Lär om från	datum (ÅÅÅÅ-MM-DD) när huset ändrats, till exempel ett renoveringssteg: modellen glömmer allt före; tomt = de senaste 28 dygnen
 # --- held values
 heat_mode		program	string		heating	Värmeläge	program = veckoschemat (week.tsv) med programmets planering; home, sleep eller away = det läget hela tiden; manual = målen ändrade för hand, gäller tills program eller ett läge väljs
+heat_until			timestamp		heating	Läget gäller till	när ett läge valt för hand (home, sleep, away) slutar och programmet tar över igen; tomt = tills vidare. Sätts av snabbvalen på Värme (resten av dagen, till i morgon kväll, en vald tid)
+heat_night_mode	"sleep"				heating	Nattens läge	läget som avslutar dagen: Värmes snabbval "resten av dagen" gäller tills veckoschemat går över till det, så natten får företräde
+heat_until_passed	AND(NOT(ISBLANK(heat_until)), heat_mode <> "program", heat_mode <> "manual", NOW() >= heat_until)				heating	Lägets tid är ute	SANT när ett läge med sluttid har gått ut; regeln heat_until_end går då tillbaka till programmet
 living_room_target		21	number	living_room	heating	Måltemperatur	rummets måltemperatur; värmekällorna i rummet följer den
 study_target		18	number	study	heating	Måltemperatur	rummets måltemperatur; värmekällorna i rummet följer den
 fan_auto		TRUE	boolean	bedroom	air	Styr fläkten automatiskt	automatic fan and humidifier control in bedroom

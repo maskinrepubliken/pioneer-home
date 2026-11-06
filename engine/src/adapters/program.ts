@@ -5,7 +5,7 @@
  *
  * A room takes part when it has a `<room>_target` cell and thermostats with rated watts (devices.tsv). Its comfort
  * for each quarter comes from the modes in force: the week schedule (week.tsv) in heat_mode program, else the
- * mode chosen; the warmest of the modes' `<room>_<mode>` temperatures, less `heat_overlap_slack` in a transition
+ * mode chosen (until `heat_until` when it is set, the week schedule after); the warmest of the modes' `<room>_<mode>` temperatures, less `heat_overlap_slack` in a transition
  * (two modes at once), never below `heat_cold`. Tuning lives in cells.tsv: `program_slack` (°C the room may be short, default 1),
  * `program_preheat` (°C above the coming comfort it may be warmed, default 1.5) and `program_shortfall_cost`
  * (kr per °C·h short, default 0.5); `heat_cold` is a comfort that is never undercut.
@@ -25,7 +25,7 @@ import type { Logger } from 'pino';
 import type { Engine } from '../core/engine.js';
 import { comfortBand, planRoom, type Plan, type PlanInput } from '../core/planner.js';
 import { backtest, buildSamples, fitLocalHeater, fitTrajectory, holdingPower, iconOctas, localDemand, meanOver, solarElevation, sunFactor, usable, type LocalHeaterModel, type LocalSample, type Points, type RoomModel } from '../core/thermal.js';
-import type { Value } from '../formula/values.js';
+import { Timestamp, type Value } from '../formula/values.js';
 import { scheduleAt } from '../core/schedule.js';
 import { forecastAt, type ForecastService } from './forecast.js';
 import type { HistoryQuery } from './pocketbase.js';
@@ -387,7 +387,10 @@ export class ProgramService {
       // or the mode chosen
       const heatMode = this.engine.store.has('heat_mode') ? this.engine.store.get('heat_mode') : null;
       const fixed = typeof heatMode === 'string' && cfg.week.modes.includes(heatMode) ? heatMode : null;
-      const modesAt = times.map((t) => (fixed ? [fixed] : scheduleAt(cfg.week, t + QUARTER_MS / 2, cfg.timezone)));
+      // a mode chosen with an end (heat_until, Värme's quick choices) holds until then; after it, the week schedule
+      const untilCell = this.engine.store.has('heat_until') ? this.engine.store.get('heat_until') : null;
+      const until = untilCell instanceof Timestamp ? untilCell.ms : null;
+      const modesAt = times.map((t) => (fixed && (until === null || t < until) ? [fixed] : scheduleAt(cfg.week, t + QUARTER_MS / 2, cfg.timezone)));
       const overlapSlack = this.num('heat_overlap_slack', 1);
       const maxError = this.num('program_max_error', 0.5);
       const out: ProgramRoom[] = [];

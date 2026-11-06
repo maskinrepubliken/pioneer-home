@@ -25,3 +25,9 @@ step	at	do	expect	note
 20		mqtt zigbee2mqtt/FLOOR2 {"occupied_heating_setpoint":20}	fired floor2_sets_target; heat_mode = "manual"; living_room_target = 20	turning a thermostat makes it Manuellt
 21	2026-11-06T07:00:01		heat_mode = "manual"; living_room_target = 20; not fired living_room_plan_follow	until the program or a mode is chosen, not until the next switch
 22		mqtt retained zigbee2mqtt/FLOOR2 {"occupied_heating_setpoint":25}	not fired floor2_sets_target; living_room_target = 20	the broker replaying a retained message is not a change on the thermostat
+23	2026-11-06T10:00	set heat_mode "away"	heat_mode = "away"; heat_use_away; living_room_target = 12	Borta chosen by hand, here with an end (Värme's quick choices)
+24		set heat_until 2026-11-06T12:00:00Z	NOT(heat_until_passed); heat_mode = "away"	back at 13:00 local time
+25	2026-11-06T12:59		heat_mode = "away"; not fired heat_until_end	
+26	2026-11-06T13:00:01		fired heat_until_end; heat_mode = "program"; ISBLANK(heat_until); living_room_target = 18	the end: back to the program, Friday 13:00 is Hemma
+27		set heat_mode "manual"	heat_mode = "manual"	
+28		set heat_until 2026-11-06T12:30:00Z	not fired heat_until_end; heat_mode = "manual"	an end left over from before does not touch Manuellt

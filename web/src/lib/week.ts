@@ -87,3 +87,26 @@ export const MODE_FILLS: ModeFill[] = [
   { bg: 'var(--surface-forest)', fg: 'var(--on-dark)' },
   { bg: 'var(--surface-rust)', fg: 'var(--on-dark)' },
 ];
+
+/**
+ * The next times (epoch ms, at most `count`, within a week) the schedule starts (`'start'`) or stops (`'end'`) having
+ * `mode` in force: the first hour that has it after one that does not, or the other way round.
+ */
+export function nextSwitches(grid: WeekGrid, nowMs: number, mode: string, kind: 'start' | 'end', count = 2): number[] {
+  const out: number[] = [];
+  const start = new Date(nowMs);
+  start.setMinutes(0, 0, 0);
+  let before = (() => {
+    const s = slotOf(start.getTime());
+    return inForce(grid, s.day, s.hour).includes(mode);
+  })();
+  for (let k = 1; k <= 7 * 24 && out.length < count; k++) {
+    const at = new Date(start.getTime());
+    at.setHours(at.getHours() + k);
+    const s = slotOf(at.getTime());
+    const now = inForce(grid, s.day, s.hour).includes(mode);
+    if (kind === 'start' ? now && !before : !now && before) out.push(at.getTime());
+    before = now;
+  }
+  return out;
+}

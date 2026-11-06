@@ -3,9 +3,14 @@
    * The heating mode, at the top of Värme: what is in force now, the next switch of the week schedule, the buttons to
    * choose Program (the week schedule, heated by price and weather), a mode to hold (Hemma, Sova, Borta: the
    * heat_use_<mode> cells) or Manuellt, and what the chosen one means. See lib/heat.ts for the cells it reads.
+   * A mode is chosen for a time: the rest of the day (until the week schedule's night mode, the cell heat_night_mode,
+   * begins: the night keeps its place), a day more, a time picked, or until further notice. The end goes to the cell
+   * heat_until; the rule heat_until_end returns to Program then, and the program plans the time after it by the
+   * schedule, so it can warm the house in time for a return.
    */
   import { MANUAL, MANUAL_NAME, PROGRAM, PROGRAM_NAME, heatModes, heatState } from '../lib/heat';
-  import { DAY_NAMES, nextChange, parseWeek, slotOf } from '../lib/week';
+  import { DAY_NAMES, nextChange, nextSwitches, parseWeek, slotOf } from '../lib/week';
+  import { isTimestamp } from '../lib/format';
   import { home, sendAction } from '../lib/state.svelte';
 
   const modes = $derived(heatModes(Object.values(home.cells)));
@@ -17,16 +22,27 @@
   const when = (ms: number) => {
     const s = slotOf(ms);
     const today = slotOf(home.now).day;
-    const hh = String(s.hour).padStart(2, '0');
-    return s.day === today ? `kl ${hh}` : s.day === (today + 1) % 7 ? `i morgon kl ${hh}` : `${DAY_NAMES[s.day]} kl ${hh}`;
+    const d = new Date(ms);
+    const hh = String(s.hour).padStart(2, '0') + (d.getMinutes() ? `:${String(d.getMinutes()).padStart(2, '0')}` : '');
+    const inWeek = ms - home.now < 6 * 86_400_000;
+    const day = !inWeek ? `${d.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })} ` : s.day === today ? '' : s.day === (today + 1) % 7 ? 'i morgon ' : `${DAY_NAMES[s.day]} `;
+    return `${day}kl ${hh}`;
   };
+
+  /** When the mode chosen by hand ends (heat_until), null = until further notice. */
+  const until = $derived.by(() => {
+    const v = home.cells['heat_until']?.value;
+    return isTimestamp(v ?? null) ? (v as { $timestamp: number }).$timestamp : null;
+  });
+  const night = $derived(typeof home.cells['heat_night_mode']?.value === 'string' ? (home.cells['heat_night_mode']!.value as string) : null);
+  const hasUntil = $derived('heat_until' in home.cells);
 
   /** What is in force now, as the big line: the modes (two in a transition), or Manuellt. */
   const title = $derived(heat.mode === MANUAL ? MANUAL_NAME : active.length ? active.map((m) => m.name).join(' + ') : heat.mode === null ? '—' : PROGRAM_NAME);
   const eyebrow = $derived(heat.mode === PROGRAM ? 'Program · veckoschemat' : heat.mode === MANUAL ? 'Värmeläge' : 'Valt läge');
 
   /** The modes to hold on the left, Program and Manuellt on the right. */
-  const held = $derived(modes.map((m) => ({ id: m.id, name: m.name, what: 'hela tiden, tills du väljer annat' })));
+  const held = $derived(modes.map((m) => ({ id: m.id, name: m.name, what: 'tills du väljer något annat' })));
   const others = [
     { id: PROGRAM, name: PROGRAM_NAME, what: 'veckoschemat, värmer när elen är billig' },
     { id: MANUAL, name: MANUAL_NAME, what: 'målen som de är nu, ändras för hand' },
@@ -34,11 +50,48 @@
   const choices = $derived([...held, ...others]);
 
   let choosing = $state<string | null>(null);
-  async function choose(id: string) {
-    if (choosing || id === heat.mode) return;
+  /** The mode whose duration is being asked for. */
+  let asking = $state<string | null>(null);
+  let custom = $state('');
+
+  /** The quick ends for a mode: the rest of the day and a day more (or the night and a night more for the night mode). */
+  const quick = $derived.by(() => {
+    if (!asking) return [];
+    const m = asking;
+    const nightMode = night;
+    if (nightMode && week.some((d) => d.some((h) => h.includes(nightMode)))) {
+      const ends = nextSwitches(week, home.now, nightMode, m === nightMode ? 'end' : 'start', 2);
+      const labels = m === nightMode ? ['I natt', 'I natt och nästa'] : ['Idag', 'I morgon också'];
+      return ends.map((at, i) => ({ label: labels[i]!, at }));
+    }
+    const midnight = new Date(home.now);
+    midnight.setHours(24, 0, 0, 0);
+    return [
+      { label: 'Idag', at: midnight.getTime() },
+      { label: 'I morgon också', at: midnight.getTime() + 86_400_000 },
+    ];
+  });
+
+  async function apply(id: string, end: number | null) {
     choosing = id;
+    asking = null;
+    if (hasUntil) await sendAction(`set heat_until ${end === null ? 'NULL' : new Date(end).toISOString()}`);
     await sendAction(`set heat_mode ${id}`);
     choosing = null;
+  }
+  function choose(id: string) {
+    if (choosing) return;
+    // a mode to hold asks how long (also when it is already chosen, to change the end); Program and Manuellt do not
+    if (hasUntil && id !== PROGRAM && id !== MANUAL) {
+      asking = asking === id ? null : id;
+      const d = new Date(home.now + 3 * 3_600_000);
+      d.setMinutes(0, 0, 0);
+      const two = (n: number) => String(n).padStart(2, '0');
+      custom = `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}T${two(d.getHours())}:00`;
+      return;
+    }
+    if (id === heat.mode && until === null) return;
+    void apply(id, null);
   }
 </script>
 
@@ -56,6 +109,8 @@
       {#if heat.transition}Övergång.{/if}
       {#if next}Nästa: {next.modes.length ? next.modes.map(name).join(' + ') : 'inget läge'} {when(next.at)}.{/if}
       Programmet värmer efter elpris och väder.
+    {:else if until !== null}
+      {name(heat.mode)} {when(until)}, sedan Program. Programmet värmer efter elpris inom lägets temperaturer och i tid inför schemat efter.
     {:else}
       {name(heat.mode)} gäller tills du väljer något annat. Programmet värmer efter elpris inom lägets temperaturer.
     {/if}
@@ -66,7 +121,7 @@
         <div class="group" class:held={g === 0} style="--n: {group.length}">
           {#each group as c (c.id)}
             {@const chosen = heat.mode === c.id}
-            <button class="choice" class:chosen role="radio" aria-checked={chosen} disabled={choosing !== null} onclick={() => choose(c.id)}>
+            <button class="choice" class:chosen class:asking={asking === c.id} role="radio" aria-checked={chosen} disabled={choosing !== null} onclick={() => choose(c.id)}>
               <span class="hole" class:filled={chosen} aria-hidden="true"></span>
               <span class="cname">{c.name}</span>
             </button>
@@ -74,8 +129,25 @@
         </div>
       {/each}
     </div>
-    {@const chosen = choices.find((c) => c.id === heat.mode)}
-    {#if chosen}<p class="what">{chosen.name}: {chosen.what}.</p>{/if}
+    {#if asking}
+      <div class="ask" role="group" aria-labelledby="h-ask">
+        <p class="ask-title" id="h-ask">Hur länge ska {name(asking)} gälla?</p>
+        <div class="ask-options">
+          {#each quick as q (q.label)}
+            <button class="choice" disabled={choosing !== null} onclick={() => apply(asking!, q.at)}><span class="cname">{q.label}</span><span class="sub">till {when(q.at)}</span></button>
+          {/each}
+          <button class="choice" disabled={choosing !== null} onclick={() => apply(asking!, null)}><span class="cname">Tills vidare</span><span class="sub">tills du väljer annat</span></button>
+        </div>
+        <form class="ask-time" onsubmit={(e) => (e.preventDefault(), custom && void apply(asking!, new Date(custom).getTime()))}>
+          <label>Till en vald tid <input type="datetime-local" bind:value={custom} /></label>
+          <button class="choice small" type="submit" disabled={choosing !== null || !custom || new Date(custom).getTime() <= home.now}>Välj</button>
+          <button class="choice small" type="button" onclick={() => (asking = null)}>Avbryt</button>
+        </form>
+      </div>
+    {:else}
+      {@const chosen = choices.find((c) => c.id === heat.mode)}
+      {#if chosen}<p class="what">{chosen.name}: {until !== null && chosen.id !== PROGRAM && chosen.id !== MANUAL ? `${when(until)}, sedan Program` : chosen.what}.</p>{/if}
+    {/if}
   {/if}
 </section>
 
@@ -210,5 +282,63 @@
       gap: 5px;
       padding: 6px 4px;
     }
+  }
+  /* How long a mode chosen by hand holds: quick ends, until further notice, or a time picked. */
+  .ask {
+    margin-top: var(--space-3);
+    max-width: 680px;
+  }
+  .ask-title {
+    margin: 0 0 var(--space-2);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .ask-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: var(--space-1);
+  }
+  .ask-options .choice {
+    flex-direction: column;
+    gap: 2px;
+    min-height: 48px;
+  }
+  .sub {
+    font-size: 12px;
+    font-weight: 400;
+  }
+  .ask-time {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+  }
+  .ask-time label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 13px;
+  }
+  .ask-time input {
+    font: inherit;
+    font-size: 15px;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--on-dark);
+    border-radius: var(--radius-s);
+    padding: 6px 8px;
+  }
+  .ask-time input:focus-visible {
+    outline: 2px solid var(--focus-on-dark);
+    outline-offset: 2px;
+  }
+  .choice.small {
+    min-height: 36px;
+    padding: 6px 14px;
+  }
+  .choice.asking {
+    outline: 2px solid var(--on-dark);
+    outline-offset: 2px;
   }
 </style>
