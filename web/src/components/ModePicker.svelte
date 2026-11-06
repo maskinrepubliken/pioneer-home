@@ -3,8 +3,10 @@
    * The heating mode, at the top of Värme: what is in force now, the next switch of the week schedule, the buttons to
    * choose Program (the week schedule, heated by price and weather), a mode to hold (Hemma, Sova, Borta: the
    * heat_use_<mode> cells) or Manuellt, and what the chosen one means. See lib/heat.ts for the cells it reads.
-   * A mode is chosen for a time: the rest of the day (until the week schedule's night mode, the cell heat_night_mode,
-   * begins: the night keeps its place), a day more, a time picked, or until further notice. The end goes to the cell
+   * A mode chosen holds at once, until further notice; for a while (ASK_MS, or until the page is left) the choices of
+   * how long show under the buttons: the rest of the day (until the week schedule's night mode, the cell
+   * heat_night_mode, begins: the night keeps its place), a day more, a time picked in a dialog, or until further
+   * notice, the one in force marked. Choosing the mode in force again brings them back. The end goes to the cell
    * heat_until; the rule heat_until_end returns to Program then, and the program plans the time after it by the
    * schedule, so it can warm the house in time for a return.
    */
@@ -53,6 +55,20 @@
   /** The mode whose duration is being asked for. */
   let asking = $state<string | null>(null);
   let custom = $state('');
+  let dialog = $state<HTMLDialogElement | null>(null);
+
+  /** The choices hide after this long without a touch (not while the time dialog is open). */
+  const ASK_MS = 15_000;
+  let askTimer: ReturnType<typeof setTimeout> | null = null;
+  function keepAsking() {
+    if (askTimer) clearTimeout(askTimer);
+    askTimer = setTimeout(() => {
+      if (!dialog?.open) asking = null;
+    }, ASK_MS);
+  }
+  $effect(() => () => {
+    if (askTimer) clearTimeout(askTimer);
+  });
 
   /** The quick ends for a mode: the rest of the day and a day more (or the night and a night more for the night mode). */
   const quick = $derived.by(() => {
@@ -72,27 +88,41 @@
     ];
   });
 
-  async function apply(id: string, end: number | null) {
+  /** A mode, until further notice (the end cleared first, so an old end never ends the new mode). */
+  async function apply(id: string) {
     choosing = id;
-    asking = null;
-    if (hasUntil) await sendAction(`set heat_until ${end === null ? 'NULL' : new Date(end).toISOString()}`);
+    if (hasUntil) await sendAction('set heat_until NULL');
     await sendAction(`set heat_mode ${id}`);
+    choosing = null;
+  }
+  /** The end of the mode in force; null = until further notice. */
+  async function setEnd(end: number | null) {
+    choosing = asking;
+    asking = null;
+    await sendAction(`set heat_until ${end === null ? 'NULL' : new Date(end).toISOString()}`);
     choosing = null;
   }
   function choose(id: string) {
     if (choosing) return;
-    // a mode to hold asks how long (also when it is already chosen, to change the end); Program and Manuellt do not
-    if (hasUntil && id !== PROGRAM && id !== MANUAL) {
-      asking = asking === id ? null : id;
-      const d = new Date(home.now + 3 * 3_600_000);
-      d.setMinutes(0, 0, 0);
-      const two = (n: number) => String(n).padStart(2, '0');
-      custom = `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}T${two(d.getHours())}:00`;
-      return;
-    }
-    if (id === heat.mode && until === null) return;
-    void apply(id, null);
+    const holds = hasUntil && id !== PROGRAM && id !== MANUAL;
+    if (id !== heat.mode || (!holds && until !== null)) void apply(id);
+    // a mode to hold: it holds at once until further notice, and how long can be chosen for a while
+    asking = holds ? id : null;
+    if (holds) keepAsking();
   }
+  function openTime() {
+    const d = new Date(until ?? home.now + 3 * 3_600_000);
+    if (until === null) d.setMinutes(0, 0, 0);
+    const two = (n: number) => String(n).padStart(2, '0');
+    custom = `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}T${two(d.getHours())}:${two(d.getMinutes())}`;
+    dialog?.showModal();
+  }
+  function closeTime() {
+    dialog?.close();
+    keepAsking();
+  }
+  /** Which choice is in force: an end that is one of the quick ones, another time, or none. */
+  const endChoice = $derived(until === null ? 'none' : quick.some((q) => q.at === until) ? String(until) : 'time');
 </script>
 
 <section class="picker" aria-labelledby="h-mode">
@@ -130,25 +160,32 @@
       {/each}
     </div>
     {#if asking}
-      <div class="ask" role="group" aria-labelledby="h-ask">
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <div class="ask" role="group" aria-labelledby="h-ask" onpointerdown={keepAsking} onkeydown={keepAsking}>
         <p class="ask-title" id="h-ask">Hur länge ska {name(asking)} gälla?</p>
         <div class="ask-options">
+          <button class="choice" class:chosen={endChoice === 'none'} aria-pressed={endChoice === 'none'} disabled={choosing !== null} onclick={() => setEnd(null)}><span class="cname">Tills vidare</span><span class="sub">tills du väljer annat</span></button>
           {#each quick as q (q.label)}
-            <button class="choice" disabled={choosing !== null} onclick={() => apply(asking!, q.at)}><span class="cname">{q.label}</span><span class="sub">till {when(q.at)}</span></button>
+            <button class="choice" class:chosen={endChoice === String(q.at)} aria-pressed={endChoice === String(q.at)} disabled={choosing !== null} onclick={() => setEnd(q.at)}><span class="cname">{q.label}</span><span class="sub">till {when(q.at)}</span></button>
           {/each}
-          <button class="choice" disabled={choosing !== null} onclick={() => apply(asking!, null)}><span class="cname">Tills vidare</span><span class="sub">tills du väljer annat</span></button>
+          <button class="choice" class:chosen={endChoice === 'time'} aria-pressed={endChoice === 'time'} aria-haspopup="dialog" disabled={choosing !== null} onclick={openTime}><span class="cname">Till en vald tid</span><span class="sub">{endChoice === 'time' && until !== null ? `till ${when(until)}` : 'datum och klockslag'}</span></button>
         </div>
-        <form class="ask-time" onsubmit={(e) => (e.preventDefault(), custom && void apply(asking!, new Date(custom).getTime()))}>
-          <label>Till en vald tid <input type="datetime-local" bind:value={custom} /></label>
-          <button class="choice small" type="submit" disabled={choosing !== null || !custom || new Date(custom).getTime() <= home.now}>Välj</button>
-          <button class="choice small" type="button" onclick={() => (asking = null)}>Avbryt</button>
-        </form>
       </div>
     {:else}
       {@const chosen = choices.find((c) => c.id === heat.mode)}
       {#if chosen}<p class="what">{chosen.name}: {until !== null && chosen.id !== PROGRAM && chosen.id !== MANUAL ? `${when(until)}, sedan Program` : chosen.what}.</p>{/if}
     {/if}
   {/if}
+  <dialog class="timebox" bind:this={dialog} aria-labelledby="h-time" onclose={keepAsking}>
+    <form method="dialog" onsubmit={(e) => (e.preventDefault(), custom && (closeTime(), void setEnd(new Date(custom).getTime())))}>
+      <p class="time-title" id="h-time">{asking ? name(asking) : 'Läget'} till</p>
+      <input type="datetime-local" bind:value={custom} required />
+      <div class="time-actions">
+        <button class="btn primary" type="submit" disabled={!custom || new Date(custom).getTime() <= home.now}>Välj</button>
+        <button class="btn" type="button" onclick={closeTime}>Avbryt</button>
+      </div>
+    </form>
+  </dialog>
 </section>
 
 <style>
@@ -307,35 +344,45 @@
     font-size: 12px;
     font-weight: 400;
   }
-  .ask-time {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: var(--space-2);
-    margin-top: var(--space-2);
+  /* The time picked: a dialog on paper, over the page. */
+  .timebox {
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-panel);
+    background: var(--paper);
+    color: var(--ink);
+    padding: var(--space-5);
+    width: min(360px, calc(100vw - 32px));
   }
-  .ask-time label {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    font-size: 13px;
+  /* no tint behind it (no opacity for tone): the dialog's own border sets it apart */
+  .timebox::backdrop {
+    background: transparent;
   }
-  .ask-time input {
+  .time-title {
+    margin: 0 0 var(--space-3);
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .timebox input {
+    width: 100%;
     font: inherit;
-    font-size: 15px;
+    font-size: 16px;
     color: var(--ink);
     background: var(--paper);
-    border: 1px solid var(--on-dark);
+    border: 1px solid var(--line-strong);
     border-radius: var(--radius-s);
-    padding: 6px 8px;
+    padding: 8px 10px;
   }
-  .ask-time input:focus-visible {
-    outline: 2px solid var(--focus-on-dark);
-    outline-offset: 2px;
+  .timebox input:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 1px;
   }
-  .choice.small {
-    min-height: 36px;
-    padding: 6px 14px;
+  .time-actions {
+    display: flex;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
   }
   .choice.asking {
     outline: 2px solid var(--on-dark);
