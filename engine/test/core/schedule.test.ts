@@ -51,6 +51,12 @@ describe('modes.tsv', () => {
     expect(res.config.cells.has('week.home')).toBe(true);
     expect(res.config.derived.get('living_room_sleep')!.source).toBe('heat_cold');
   });
+  it('reads until (how long a mode holds when chosen) as a column of its own, not a room', () => {
+    const ok = loadConfig(dir({ 'modes.tsv': 'id\tname\tuntil\tliving_room\nhome\tHemma\ttoday\t18\naway\tBorta\t\t\n' }));
+    expect(ok.ok).toBe(true);
+    const bad = loadConfig(dir({ 'modes.tsv': 'id\tname\tuntil\tliving_room\nhome\tHemma\tforever\t18\n' }));
+    expect(bad.ok ? '' : bad.errors.map((e) => e.message).join('\n')).toContain('until must be none, today or tomorrow');
+  });
   it('refuses a room column that is not a room, and a mode the week does not know', () => {
     const bad = loadConfig(dir({ 'modes.tsv': 'id\tname\tkitchen\nhome\tHemma\t18\n', 'week.tsv': 'hour\tmon\n07\tparty\n' }));
     expect(bad.ok).toBe(false);

@@ -381,7 +381,9 @@ export function loadConfig(dir: string): LoadResult {
 
   // ---- modes: the heating modes (modes.tsv) become derived cells, compiled with the others below --------
   // A row per mode: id, name, and a column per room (an id from rooms.tsv) with the room's temperature in that mode,
-  // a number or a formula; empty = heat_cold. Compiled to heat_use_<mode> (in force now: the week schedule's in
+  // a number or a formula; empty = heat_cold. `until` (optional) is how long the mode holds by default when chosen on
+  // Värme: none (until further notice, also empty), today (until the night mode begins; for the night mode, the night)
+  // or tomorrow (a day more); only the web UI reads it. Compiled to heat_use_<mode> (in force now: the week schedule's in
   // heat_mode program, else the mode chosen), <room>_<mode>, heat_transition (two modes at once) and per room
   // <room>_comfort (the warmest mode in force, less heat_overlap_slack in a transition, never below heat_cold).
   const modeFormulaRows = (): { tb: TsvTable; row: TsvRow; col: string }[] => {
@@ -392,7 +394,7 @@ export function loadConfig(dir: string): LoadResult {
     for (const need of ['heat_mode', 'heat_cold', 'heat_overlap_slack']) {
       if (!cellIds.has(need)) err(tb, tb.rows[0]!, `modes.tsv needs the cell ${need} in cells.tsv`, 'id');
     }
-    const roomCols = tb.header.filter((h) => !['id', 'name', 'note'].includes(h));
+    const roomCols = tb.header.filter((h) => !['id', 'name', 'until', 'note'].includes(h));
     for (const r of roomCols) if (!rooms.has(r)) err(tb, tb.rows[0]!, `column "${r}" is not a room (rooms.tsv has: ${[...rooms.keys()].join(', ')})`, r);
     const out: { tb: TsvTable; row: TsvRow; col: string }[] = [];
     const ids: string[] = [];
@@ -407,6 +409,8 @@ export function loadConfig(dir: string): LoadResult {
         continue;
       }
       ids.push(id);
+      const until = (row.cells['until'] ?? '').trim();
+      if (until && !['none', 'today', 'tomorrow'].includes(until)) err(tb, row, `until must be none, today or tomorrow (or empty), got "${until}"`, 'until');
       const name = row.cells['name'] || id;
       const at = (cells: Record<string, string>, col: string) => ({ tb, row: { line: row.line, cells: { group: 'heating', ...cells } }, col });
       out.push(at({ id: `heat_use_${id}`, name, formula: `IF(heat_mode = "program", COALESCE(week.${id}, FALSE), heat_mode = "${id}")` }, 'id'));

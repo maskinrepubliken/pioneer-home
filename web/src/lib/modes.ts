@@ -8,9 +8,14 @@ import { parseTsv } from './tsv';
 /** A room's temperature in a mode: a number, or cold (the cell heat_cold), or another formula kept as it is. */
 export type ModeTemp = { kind: 'number'; value: number } | { kind: 'cold' } | { kind: 'formula'; text: string };
 
+/** How long a mode holds by default when chosen on Värme: until further notice, today (the night for the night mode), a day more. */
+export type ModeUntil = 'none' | 'today' | 'tomorrow';
+export const UNTIL_NAMES: Record<ModeUntil, string> = { none: 'Tills vidare', today: 'Idag', tomorrow: 'I morgon också' };
+
 export interface ModeRow {
   id: string;
   name: string;
+  until: ModeUntil;
   /** room id -> temperature */
   temps: Record<string, ModeTemp>;
   note: string;
@@ -37,13 +42,14 @@ function tempText(t: ModeTemp): string {
 
 export function parseModeTable(text: string): ModesTable {
   const t = parseTsv(text);
-  const rooms = t.header.filter((h) => !['id', 'name', 'note'].includes(h));
+  const rooms = t.header.filter((h) => !['id', 'name', 'until', 'note'].includes(h));
   const col = (name: string) => t.header.indexOf(name);
   const modes = t.rows
     .filter((r) => r[col('id')])
     .map((r): ModeRow => ({
       id: r[col('id')]!,
       name: col('name') >= 0 ? (r[col('name')] ?? '') : '',
+      until: col('until') >= 0 && ['today', 'tomorrow'].includes(r[col('until')] ?? '') ? (r[col('until')] as ModeUntil) : 'none',
       temps: Object.fromEntries(rooms.map((room) => [room, parseTemp(r[col(room)] ?? '')])),
       note: col('note') >= 0 ? (r[col('note')] ?? '') : '',
     }));
@@ -51,8 +57,8 @@ export function parseModeTable(text: string): ModesTable {
 }
 
 export function serializeModeTable(m: ModesTable): string {
-  const lines = [...m.comments, ['id', 'name', ...m.rooms, 'note'].join('\t')];
-  for (const row of m.modes) lines.push([row.id, row.name, ...m.rooms.map((r) => tempText(row.temps[r] ?? { kind: 'cold' })), row.note].join('\t'));
+  const lines = [...m.comments, ['id', 'name', 'until', ...m.rooms, 'note'].join('\t')];
+  for (const row of m.modes) lines.push([row.id, row.name, row.until === 'none' ? '' : row.until, ...m.rooms.map((r) => tempText(row.temps[r] ?? { kind: 'cold' })), row.note].join('\t'));
   return lines.join('\n') + '\n';
 }
 

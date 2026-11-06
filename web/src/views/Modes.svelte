@@ -1,12 +1,12 @@
 <script lang="ts">
   /**
    * Lägen: the heating modes (modes.tsv) to edit: each mode's name and each room's temperature in it (a stepper, or
-   * Kallt = heat_cold), add and remove modes, add a room. A mode the week schedule uses cannot be removed (repaint those
+   * Kallt = heat_cold), how long it holds by default when chosen on Värme (until), add and remove modes, add a room. A mode the week schedule uses cannot be removed (repaint those
    * hours on Program first). Saved through PUT /api/tables/modes.tsv, which validates first. The order is the order of
    * the buttons on Värme and the brushes on Program.
    */
   import { saveTable } from '../lib/api';
-  import { COLD, modeId, parseModeTable, serializeModeTable, type ModesTable } from '../lib/modes';
+  import { COLD, UNTIL_NAMES, modeId, parseModeTable, serializeModeTable, type ModesTable, type ModeUntil } from '../lib/modes';
   import { home, notify } from '../lib/state.svelte';
   import { parseWeek } from '../lib/week';
   import { roomName } from '../lib/format';
@@ -24,6 +24,9 @@
   const cold = $derived(typeof home.cells['heat_cold']?.value === 'number' ? (home.cells['heat_cold']!.value as number) : null);
   const slack = $derived(home.cells['heat_overlap_slack']?.value);
   const otherRooms = $derived(Object.keys(home.rooms).filter((r) => !table.rooms.includes(r)));
+  const night = $derived(typeof home.cells['heat_night_mode']?.value === 'string' ? (home.cells['heat_night_mode']!.value as string) : null);
+  /** The Swedish words for a mode's default length (the night mode's today is its night). */
+  const untilName = (id: string, u: ModeUntil) => (id === night ? { none: 'Tills vidare', today: 'I natt', tomorrow: 'I natt och nästa' }[u] : UNTIL_NAMES[u]);
   const deg = (n: number) => `${n.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} °C`;
 
   function step(mode: number, room: string, delta: number) {
@@ -41,7 +44,7 @@
     const name = newName.trim();
     if (!name) return;
     const id = modeId(name, table.modes.map((m) => m.id));
-    table.modes.push({ id, name, temps: Object.fromEntries(table.rooms.map((r) => [r, { kind: 'cold' as const }])), note: '' });
+    table.modes.push({ id, name, until: 'none', temps: Object.fromEntries(table.rooms.map((r) => [r, { kind: 'cold' as const }])), note: '' });
     newName = '';
     touch();
   }
@@ -122,6 +125,12 @@
               onclick={() => removeMode(i)}>Ta bort</button
             >
           </span>
+        </div>
+        <div class="until" role="radiogroup" aria-label="Hur länge {m.name} gäller när det väljs">
+          <span class="faint small">Väljs på Värme:</span>
+          {#each ['none', 'today', 'tomorrow'] as const as u (u)}
+            <button class="btn small" class:on={m.until === u} role="radio" aria-checked={m.until === u} onclick={() => ((m.until = u), touch())}>{untilName(m.id, u)}</button>
+          {/each}
         </div>
         <ul class="temps">
           {#each table.rooms as r (r)}
@@ -311,5 +320,17 @@
       border-radius: var(--radius-card);
       padding: var(--space-3);
     }
+  }
+  .until {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+    margin: var(--space-2) 0;
+  }
+  .until .btn.on {
+    background: var(--ink);
+    color: var(--paper);
+    border-color: var(--ink);
   }
 </style>

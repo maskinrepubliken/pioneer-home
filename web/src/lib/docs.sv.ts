@@ -268,6 +268,7 @@ export const TABLES: TableDoc[] = [
       'Kräver cellerna heat_mode, heat_cold och heat_overlap_slack i Celler. Ett läge som veckoschemat använder kan inte tas bort.',
     ],
     columns: [
+      { name: 'until', what: 'Hur länge läget gäller när det väljs på Värme, om man inte väljer annat. Kan också väljas på Lägen.', allowed: 'tomt eller none = tills vidare, today = idag (nattens läge: i natt), tomorrow = i morgon också', example: 'today' },
       { name: 'id', what: 'Lägets id: små bokstäver, siffror och _. Används i veckoschemat och i heat_mode.', example: 'home' },
       { name: 'name', what: 'Lägets namn i appen.', example: 'Hemma' },
       { name: '<rum>', what: 'Rummets temperatur i läget, °C, eller en formel. heat_cold = Kallt.', example: '18' },

@@ -3,7 +3,8 @@
    * The heating mode, at the top of Värme: what is in force now, the next switch of the week schedule, the buttons to
    * choose Program (the week schedule, heated by price and weather), a mode to hold (Hemma, Sova, Borta: the
    * heat_use_<mode> cells) or Manuellt, and what the chosen one means. See lib/heat.ts for the cells it reads.
-   * A mode chosen holds at once, until further notice; for a while (ASK_MS, or until the page is left) the choices of
+   * A mode chosen holds at once, as long as its default (modes.tsv `until`, set on Lägen: until further notice, today,
+   * a day more); for a while (ASK_MS, or until the page is left) the choices of
    * how long show under the buttons: the rest of the day (until the week schedule's night mode, the cell
    * heat_night_mode, begins: the night keeps its place), a day more, a time picked in a dialog, or until further
    * notice, the one in force marked. Choosing the mode in force again brings them back. The end goes to the cell
@@ -13,6 +14,7 @@
   import { MANUAL, MANUAL_NAME, PROGRAM, PROGRAM_NAME, heatModes, heatState } from '../lib/heat';
   import { DAY_NAMES, nextChange, nextSwitches, parseWeek, slotOf } from '../lib/week';
   import { isTimestamp } from '../lib/format';
+  import { parseModeTable } from '../lib/modes';
   import { home, sendAction } from '../lib/state.svelte';
 
   const modes = $derived(heatModes(Object.values(home.cells)));
@@ -71,9 +73,7 @@
   });
 
   /** The quick ends for a mode: the rest of the day and a day more (or the night and a night more for the night mode). */
-  const quick = $derived.by(() => {
-    if (!asking) return [];
-    const m = asking;
+  function endsFor(m: string): { label: string; at: number }[] {
     const nightMode = night;
     if (nightMode && week.some((d) => d.some((h) => h.includes(nightMode)))) {
       const ends = nextSwitches(week, home.now, nightMode, m === nightMode ? 'end' : 'start', 2);
@@ -86,12 +86,17 @@
       { label: 'Idag', at: midnight.getTime() },
       { label: 'I morgon också', at: midnight.getTime() + 86_400_000 },
     ];
-  });
+  }
+  const quick = $derived(asking ? endsFor(asking) : []);
+  /** Each mode's default length (modes.tsv `until`, set on Lägen). */
+  const defaults = $derived(Object.fromEntries(parseModeTable(home.tables?.files?.['modes.tsv'] ?? '').modes.map((m) => [m.id, m.until])));
 
-  /** A mode, until further notice (the end cleared first, so an old end never ends the new mode). */
+  /** A mode with its default end (Lägen: until further notice, today, a day more); the end is set first, so an old end never ends the new mode. */
   async function apply(id: string) {
     choosing = id;
-    if (hasUntil) await sendAction('set heat_until NULL');
+    const d = defaults[id];
+    const end = d === 'today' ? (endsFor(id)[0]?.at ?? null) : d === 'tomorrow' ? (endsFor(id)[1]?.at ?? null) : null;
+    if (hasUntil) await sendAction(`set heat_until ${end === null ? 'NULL' : new Date(end).toISOString()}`);
     await sendAction(`set heat_mode ${id}`);
     choosing = null;
   }
