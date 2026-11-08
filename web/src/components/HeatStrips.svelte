@@ -262,7 +262,7 @@
 <figure class="strips" bind:clientWidth={width}>
   <figcaption class="readout" aria-live="polite">
     {#if shown !== null}
-      <span class="when">{dayHour(hours[shown]!)}{active === null ? (ahead ? ' · första timmen' : ' · senaste hela timmen') : ''}</span>
+      <span class="when">{dayHour(hours[shown]!)}{#if active === null}<span class="wide">{ahead ? ' · första timmen' : ' · senaste hela timmen'}</span>{/if}{#if sources.length}<span class="phone-total"> · {num2(kwTotal[shown] ?? 0)} kW · {kr(sekTotal[shown] ?? 0)}</span>{/if}</span>
       <dl class="vals">
         {#if hasModes}<div><dt>Läge</dt><dd class="value">{modeIn(shown)}</dd></div>{/if}
         {#each hasTargets ? targets : [] as t (t.label)}<div><dt>Mål {t.label}</dt><dd class="value">{targetIn(t, shown)}</dd></div>{/each}
@@ -270,23 +270,12 @@
         {#if hasSun}<div><dt>Sol</dt><dd class="value">{lux(sun[shown])}</dd></div>{/if}
         {#each rooms as r (r.label)}
           {@const v = roomIn(r, shown)}
-          <div><dt>{r.label}{#if v.target}, mål {v.target}{/if}</dt><dd class="value">{v.temp}</dd></div>
+          <div><dt>{r.label}{#if v.target}<span class="wide">, mål {v.target}</span>{/if}</dt><dd class="value">{v.temp}{#if v.target}<span class="phone-target">mål {v.target}</span>{/if}</dd></div>
         {/each}
-        {#if sources.length}<div><dt>Värme</dt><dd class="value">{num2(kwTotal[shown] ?? 0)} kW</dd></div>{/if}
+        {#if sources.length}<div class="wide"><dt>Värme</dt><dd class="value">{num2(kwTotal[shown] ?? 0)} kW</dd></div>{/if}
         <div><dt>Elpris</dt><dd class="value">{price[shown] === null ? '—' : `${num2(price[shown]!)} kr/kWh`}</dd></div>
-        {#if sources.length}<div><dt>Kostnad</dt><dd class="value">{kr(sekTotal[shown] ?? 0)}</dd></div>{/if}
+        {#if sources.length}<div class="wide"><dt>Kostnad</dt><dd class="value">{kr(sekTotal[shown] ?? 0)}</dd></div>{/if}
       </dl>
-      {#if ordered.length}
-        <ul class="legend">
-          {#each ordered as src, i (src.label)}
-            <li>
-              <svg class="sw" width="12" height="12" aria-hidden="true"><rect x="0.5" y="0.5" width="11" height="11" rx="2" fill={colour(i)} stroke={outline(i)} /></svg>
-              <span class="lname">{src.label}</span>
-              <b class="value">{num2(src.kw[shown] ?? 0)} kW · {kr(src.sek[shown] ?? 0)}</b>
-            </li>
-          {/each}
-        </ul>
-      {/if}
       {#each marks.filter((m) => m.hour === shown) as m (m.t)}<span class="event-note">Händelse {eventWhen(m)}: {m.title}{#if m.note} ({m.note}){/if}</span>{/each}
     {/if}
   </figcaption>
@@ -305,18 +294,30 @@
     {#if width > 0}
       {#each STRIPS as strip (strip.id)}
         <div class="strip">
-          <span class="stitle"
+          <div class="stitle"
             >{strip.title} <span class="unit">{strip.unit}</span>
             {#if strip.kind === 'room'}
               <span class="key"><svg width="22" height="8" aria-hidden="true"><line x1="0" x2="22" y1="4" y2="4" /></svg>uppmätt</span>
               <span class="key"><svg width="22" height="8" aria-hidden="true"><line x1="0" x2="22" y1="4" y2="4" stroke-dasharray="6 3" /></svg>mål</span>
+            {/if}
+            {#if strip.kind === 'kw' || strip.kind === 'sek'}
+              <!-- the legend where the bars are: each source's fill and its value in the hour picked -->
+              <ul class="skey">
+                {#each ordered as src, i (src.label)}
+                  <li>
+                    <svg class="sw" width="12" height="12" aria-hidden="true"><rect x="0.5" y="0.5" width="11" height="11" rx="2" fill={colour(i)} stroke={outline(i)} /></svg>
+                    <span class="lname">{src.label}</span>
+                    {#if shown !== null}<b class="value">{strip.kind === 'kw' ? `${num2(src.kw[shown] ?? 0)} kW` : kr(src.sek[shown] ?? 0)}</b>{/if}
+                  </li>
+                {/each}
+              </ul>
             {/if}
             {#if strip.kind === 'targets'}
               {#each targets as t, k (t.label)}
                 <span class="key"><svg width="22" height="8" aria-hidden="true"><line x1="0" x2="22" y1="4" y2="4" stroke-dasharray={DASHES[k % DASHES.length]} /></svg>{t.label}</span>
               {/each}
             {/if}
-          </span>
+          </div>
           <svg
             width={width}
             height={strip.h}
@@ -592,65 +593,70 @@
     stroke: var(--ink);
     stroke-width: 1;
   }
-  /* the legend, in the readout: each heat source's fill and its kW and kr in the hour picked */
-  .legend {
-    flex-basis: 100%;
+  /* the legend under the Värme and Kostnad titles: each source's fill and its value in the hour picked */
+  .skey {
     list-style: none;
     display: flex;
     flex-wrap: wrap;
     gap: 2px var(--space-4);
-    margin: 0;
+    margin: 2px 0 4px;
     padding: 0;
     font-size: 12px;
+    font-weight: 400;
     color: var(--ink-muted);
   }
-  .legend li {
+  .skey li {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    white-space: nowrap;
   }
-  .legend .value {
+  .skey .value {
     color: var(--ink);
     font-size: 12px;
   }
-  /* On a phone the readout must stay low while it sticks: the values and the sources each keep to one line that
-     swipes sideways. */
+  /* phone-only parts of the readout, hidden on wider screens */
+  .phone-total,
+  .phone-target {
+    display: none;
+  }
+  /* On a phone the readout must stay low while it sticks, without sideways scrolling: the values in three columns,
+     a room's target next to its temperature, the hour's total on the date line instead of Värme and Kostnad cells,
+     and the sources in two columns with their kW. */
   @media (max-width: 560px) {
     .readout {
-      gap: 2px var(--space-2);
+      gap: 4px;
       padding: 6px 0;
       min-height: 0;
     }
-    .vals,
-    .legend {
-      flex-wrap: nowrap;
-      overflow-x: auto;
-      scrollbar-width: none;
-    }
-    .vals::-webkit-scrollbar,
-    .legend::-webkit-scrollbar {
+    .wide {
       display: none;
     }
+    .phone-total,
+    .phone-target {
+      display: inline;
+    }
+    .phone-target {
+      display: block;
+      font-size: 10px;
+      line-height: 1.2;
+      color: var(--ink-muted);
+    }
+    .vals {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 4px 0;
+    }
     .vals > div {
-      flex: none;
-      padding: 0 var(--space-2) 0 6px;
+      min-width: 0;
+      padding: 0 4px 0 6px;
     }
     .vals dt {
       font-size: 10px;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .vals dd {
       font-size: 13px;
-    }
-    .legend {
-      gap: var(--space-3);
-      font-size: 11px;
-    }
-    .legend li {
-      flex: none;
-    }
-    .legend .value {
-      font-size: 11px;
     }
   }
   .sw {
