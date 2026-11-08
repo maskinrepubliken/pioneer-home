@@ -438,13 +438,15 @@
     margin: 0;
     min-width: 0;
   }
-  /* follows the reader down the strips, under the page header (--header-h, set by Header.svelte) */
+  /* follows the reader down the strips, under the page header (--header-h, set by Header.svelte), as a bar the
+     width of the screen: its fill and bottom rule are painted out to the edges by border-image outsets, which take
+     no room, so the page never gets wider than the screen */
   .readout {
     position: sticky;
     top: var(--header-h, 0px);
     z-index: 3;
     background: var(--paper-raised);
-    border-bottom: 1px solid var(--line);
+    border-image: linear-gradient(var(--paper-raised) 0 0) fill 0 / 0 / 0 100vw;
     padding: var(--space-2) 0;
     display: flex;
     flex-wrap: wrap;
@@ -455,6 +457,15 @@
     font-size: 13px;
     line-height: 1.4;
     color: var(--ink-muted);
+  }
+  .readout::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 1px;
+    border-image: linear-gradient(var(--line) 0 0) fill 0 / 0 / 0 100vw;
   }
   .when {
     font-family: var(--font-mono);
