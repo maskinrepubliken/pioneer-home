@@ -9,6 +9,9 @@
    * quarter (stepped lines, one dash pattern per room). For history, a strip per room (after the outdoor ones): its
    * measured temperature as a line and its target as a dashed step, all rooms on one scale. Events (events.tsv)
    * inside the hours are a dashed line through every strip, titled in the first, and named in the readout.
+   * The readout sticks under the page header while the strips scroll past (on a phone the strips are taller than the
+   * screen), and it is also the legend: each heat source with its fill and its kW and kr in the hour picked. Phones
+   * get lower strips.
    */
   import { kr } from '../lib/cost';
   import { seriesFill, seriesStroke } from '../lib/seriesFill';
@@ -105,7 +108,7 @@
     return lo === hi ? [lo - 1, hi + 1] : [lo, hi];
   }
 
-  const H = { line: 64, bars: 78 };
+  const H = $derived(width > 0 && width < 560 ? { line: 46, bars: 58 } : { line: 64, bars: 78 });
   const PAD = 6;
   /** A line as an SVG path over the hour centres, broken where a value is missing. */
   function linePath(vals: (number | null)[], lo: number, hi: number, h: number): string {
@@ -273,6 +276,17 @@
         <div><dt>Elpris</dt><dd class="value">{price[shown] === null ? '—' : `${num2(price[shown]!)} kr/kWh`}</dd></div>
         {#if sources.length}<div><dt>Kostnad</dt><dd class="value">{kr(sekTotal[shown] ?? 0)}</dd></div>{/if}
       </dl>
+      {#if ordered.length}
+        <ul class="legend">
+          {#each ordered as src, i (src.label)}
+            <li>
+              <svg class="sw" width="12" height="12" aria-hidden="true"><rect x="0.5" y="0.5" width="11" height="11" rx="2" fill={colour(i)} stroke={outline(i)} /></svg>
+              <span class="lname">{src.label}</span>
+              <b class="value">{num2(src.kw[shown] ?? 0)} kW · {kr(src.sek[shown] ?? 0)}</b>
+            </li>
+          {/each}
+        </ul>
+      {/if}
       {#each marks.filter((m) => m.hour === shown) as m (m.t)}<span class="event-note">Händelse {eventWhen(m)}: {m.title}{#if m.note} ({m.note}){/if}</span>{/each}
     {/if}
   </figcaption>
@@ -389,11 +403,6 @@
     {/if}
   </div>
 
-  <ul class="legend">
-    {#each ordered as s, i (s.label)}
-      <li><svg class="sw" width="14" height="14" aria-hidden="true"><rect x="0.5" y="0.5" width="13" height="13" rx="3" fill={colour(i)} stroke={outline(i)} /></svg>{s.label}</li>
-    {/each}
-  </ul>
 
   <button class="btn small tablebtn" aria-expanded={tableOpen} onclick={() => (tableOpen = !tableOpen)}>{tableOpen ? 'Dölj tabellen' : 'Visa som tabell'}</button>
   {#if tableOpen}
@@ -428,7 +437,14 @@
     margin: 0;
     min-width: 0;
   }
+  /* follows the reader down the strips, under the page header (--header-h, set by Header.svelte) */
   .readout {
+    position: sticky;
+    top: var(--header-h, 0px);
+    z-index: 3;
+    background: var(--paper-raised);
+    border-bottom: 1px solid var(--line);
+    padding: var(--space-2) 0;
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
@@ -576,20 +592,66 @@
     stroke: var(--ink);
     stroke-width: 1;
   }
+  /* the legend, in the readout: each heat source's fill and its kW and kr in the hour picked */
   .legend {
+    flex-basis: 100%;
     list-style: none;
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-1) var(--space-4);
-    margin: var(--space-3) 0 0;
+    gap: 2px var(--space-4);
+    margin: 0;
     padding: 0;
-    font-size: 13px;
+    font-size: 12px;
     color: var(--ink-muted);
   }
   .legend li {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .legend .value {
+    color: var(--ink);
+    font-size: 12px;
+  }
+  /* On a phone the readout must stay low while it sticks: the values and the sources each keep to one line that
+     swipes sideways. */
+  @media (max-width: 560px) {
+    .readout {
+      gap: 2px var(--space-2);
+      padding: 6px 0;
+      min-height: 0;
+    }
+    .vals,
+    .legend {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .vals::-webkit-scrollbar,
+    .legend::-webkit-scrollbar {
+      display: none;
+    }
+    .vals > div {
+      flex: none;
+      padding: 0 var(--space-2) 0 6px;
+    }
+    .vals dt {
+      font-size: 10px;
+    }
+    .vals dd {
+      font-size: 13px;
+    }
+    .legend {
+      gap: var(--space-3);
+      font-size: 11px;
+    }
+    .legend li {
+      flex: none;
+    }
+    .legend .value {
+      font-size: 11px;
+    }
   }
   .sw {
     flex-shrink: 0;

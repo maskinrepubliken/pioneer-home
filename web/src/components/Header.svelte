@@ -24,6 +24,17 @@
     document.title = title;
   });
 
+  /** The header's height as the CSS variable --header-h, so sticky parts of a page (HeatStrips' readout) sit under it. */
+  let headerEl = $state<HTMLElement | null>(null);
+  $effect(() => {
+    if (!headerEl) return;
+    const set = () => document.documentElement.style.setProperty('--header-h', `${headerEl!.offsetHeight}px`);
+    const ro = new ResizeObserver(set);
+    ro.observe(headerEl);
+    set();
+    return () => ro.disconnect();
+  });
+
   /** The system's icon, far left: a link to the setting `start_url` (a start page for all the home's services) when there is one. */
   const startUrl = $derived.by(() => {
     const v = home.cells['start_url']?.value;
@@ -31,7 +42,7 @@
   });
 </script>
 
-<header>
+<header bind:this={headerEl}>
   <div class="bar">
     {#if startUrl}
       <a class="icon" href={startUrl} title="Startsidan" aria-label="Startsidan"><img src="./favicon.svg" alt="" width="28" height="28" /></a>
