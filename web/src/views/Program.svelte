@@ -289,8 +289,11 @@
           />
           <p class="small">
             Modellen körs {r.model?.horizonH ?? 8} timmar i taget från uppmätt temperatur med den värme och det väder som
-            var. Senaste veckan missar den i snitt <b class="value">{num2(r.check.rmse)} °C</b> och som mest
-            <b class="value">{num1(r.check.max)} °C</b> (gränserna {num1(program.learn.maxError)} och {num1(3 * program.learn.maxError)} °C).
+            var. Senaste veckan tror den att rummet är varmare än det är med i snitt <b class="value">{num2(r.check.overRmse ?? r.check.rmse)} °C</b>
+            och som mest <b class="value">{num1(r.check.overMax ?? r.check.max)} °C</b> (gränserna {num1(program.learn.maxError)} och
+            {num1(3 * program.learn.maxError)} °C); det är den sidan som kan lämna rummet kallt. Åt båda hållen missar den i snitt
+            {num2(r.check.rmse)} °C: när rummet värms fortare än modellen tror börjar programmet bara lite tidigare.
+            {#if r.check.extra}{Math.round(r.check.extra / 4)} timmar med extra värme (braskaminen) hoppades över.{/if}
             {trustedText(r)}
           </p>
         </div>

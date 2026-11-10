@@ -49,6 +49,8 @@ export interface ThermalSample {
   /** kW, mean over the step */
   power: number;
   sun: number;
+  /** heat the model does not know of was there (a wood stove): the sample is left out of fits and checks */
+  extra?: boolean;
 }
 
 const RAD = Math.PI / 180;
@@ -218,7 +220,7 @@ export function simulate(m: RoomModel, samples: ThermalSample[], i0: number, ste
   const out: number[] = [];
   let t = samples[i0]!.tin;
   for (let k = i0; k < i0 + steps && k + 1 < samples.length; k++) {
-    if (samples[k + 1]!.t - samples[k]!.t !== stepS) break;
+    if (samples[k + 1]!.t - samples[k]!.t !== stepS || samples[k]!.extra || samples[k + 1]!.extra) break;
     const s = samples[k]!;
     t = step(m, t, s.tout, s.power, s.sun, stepS / 3600);
     out.push(t);
@@ -263,7 +265,7 @@ export function fitTrajectory(samples: ThermalSample[], opts: TrajectoryOptions)
   const { stepS, horizonSteps: H } = opts;
   if (samples.length < (opts.minSamples ?? 4 * H)) return null;
   const starts: number[] = [];
-  for (let i = 0; i + 1 < samples.length; i += Math.max(1, Math.floor(H / 2))) if (samples[i + 1]!.t - samples[i]!.t === stepS) starts.push(i);
+  for (let i = 0; i + 1 < samples.length; i += Math.max(1, Math.floor(H / 2))) if (samples[i + 1]!.t - samples[i]!.t === stepS && !samples[i]!.extra) starts.push(i);
   if (!starts.length) return null;
   const weight = (t: number) => Math.pow(0.5, (opts.now - t) / opts.halfLifeS);
   const make = (x: number[]): RoomModel => ({ a: Math.exp(x[0]!), b: Math.exp(x[1]!), c: x[2]!, d: x[3]!, n: samples.length, stepS, rmse: 0, horizonH: (H * stepS) / 3600, from: samples[0]!.t * 1000, to: samples[samples.length - 1]!.t * 1000 });
@@ -291,8 +293,23 @@ export function fitTrajectory(samples: ThermalSample[], opts: TrajectoryOptions)
   return { ...make(x), rmse: Math.sqrt(best) };
 }
 
-/** The model run over the samples in [from, to) (epoch s), restarted from the measured temperature every window. */
-export function backtest(m: RoomModel, samples: ThermalSample[], from: number, to: number, horizonSteps: number): { points: [number, number, number][]; rmse: number; max: number } | null {
+export interface Backtest {
+  /** epoch s, measured, model */
+  points: [number, number, number][];
+  rmse: number;
+  max: number;
+  /** the same over the misses where the model is warmer than the room (the side that leaves the room cold) */
+  overRmse: number;
+  overMax: number;
+}
+
+/**
+ * The model run over the samples in [from, to) (epoch s), restarted from the measured temperature every window.
+ * Besides the misses both ways, those where the model thinks the room warmer than it is: a plan from such a model
+ * heats too little or too late, while one that thinks the room slower to warm than it is only starts earlier (and
+ * the thermostats stop at their setpoint).
+ */
+export function backtest(m: RoomModel, samples: ThermalSample[], from: number, to: number, horizonSteps: number): Backtest | null {
   const points: [number, number, number][] = [];
   let i = samples.findIndex((s) => s.t >= from);
   if (i < 0) return null;
@@ -311,17 +328,25 @@ export function backtest(m: RoomModel, samples: ThermalSample[], from: number, t
   }
   if (points.length < 8) return null;
   const miss = points.map(([, meas, mod]) => mod - meas);
-  return { points, rmse: Math.sqrt(miss.reduce((s, v) => s + v * v, 0) / miss.length), max: Math.max(...miss.map(Math.abs)) };
+  const over = miss.map((v) => Math.max(v, 0));
+  return {
+    points,
+    rmse: Math.sqrt(miss.reduce((s, v) => s + v * v, 0) / miss.length),
+    max: Math.max(...miss.map(Math.abs)),
+    overRmse: Math.sqrt(over.reduce((s, v) => s + v * v, 0) / over.length),
+    overMax: Math.max(...over),
+  };
 }
 
 /**
  * A model the planner can trust: heaters warm, the room loses heat, a time constant between 2 h and 2 weeks, and run
- * over the recent days from measured starts (`backtest`) it stays within `maxError` °C of the measured temperature
- * (root mean square) and never misses by more than three times that (quiet days at a steady temperature would
- * otherwise hide a miss on the few nights the room cools). Without a check, the fit's own error counts.
+ * over the recent days from measured starts (`backtest`) it thinks the room warmer than it is by no more than
+ * `maxError` °C (root mean square) and never by more than three times that (quiet days at a steady temperature would
+ * otherwise hide a miss on the few nights the room cools). Misses the other way (the room warms faster than the model
+ * thinks) only make the plan start early. Without a check, the fit's own error counts.
  */
-export function usable(m: RoomModel | null, check: { rmse: number; max: number } | null = null, maxError = 0.5): m is RoomModel {
-  const ok = check ? check.rmse <= maxError && check.max <= 3 * maxError : !!m && m.rmse <= maxError;
+export function usable(m: RoomModel | null, check: { overRmse: number; overMax: number } | null = null, maxError = 0.5): m is RoomModel {
+  const ok = check ? check.overRmse <= maxError && check.overMax <= 3 * maxError : !!m && m.rmse <= maxError;
   return !!m && ok && m.a > 0.01 && m.b > 1 / 336 && m.b < 0.5 && Number.isFinite(m.c) && Number.isFinite(m.d);
 }
 

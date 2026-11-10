@@ -188,6 +188,11 @@ export interface RoomModel {
 export interface ModelCheck {
   rmse: number;
   max: number;
+  /** misses where the model thinks the room warmer than it is: what the trust is decided on */
+  overRmse: number;
+  overMax: number;
+  /** quarters left out as extra heat (a wood stove) */
+  extra: number;
   /** epoch ms, measured °C, model °C */
   points: [number, number, number][];
 }

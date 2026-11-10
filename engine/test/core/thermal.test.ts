@@ -87,8 +87,33 @@ describe('thermal model', () => {
     const slow = { ...fit, a: 0.3, b: 0.0187 };
     const missed = backtest(slow, samples, end - 7 * 86_400, end, 32)!;
     expect(missed.rmse).toBeGreaterThan(4 * check.rmse);
-    expect(usable(slow, { rmse: missed.rmse, max: 0 }, 0.3)).toBe(false);
-    expect(usable(fit, { rmse: 0.1, max: 1.6 }, 0.5)).toBe(false);
+    expect(usable(slow, missed, 0.3)).toBe(false);
+    expect(usable(fit, { overRmse: 0.1, overMax: 1.6 }, 0.5)).toBe(false);
+    // a model that thinks the room slower to warm than it is misses the other way: it only makes the plan start early
+    const timid = { ...fit, a: fit.a * 0.6 };
+    const early = backtest(timid, samples, end - 7 * 86_400, end, 32)!;
+    expect(early.rmse).toBeGreaterThan(0.3);
+    expect(early.overRmse).toBeLessThan(0.1);
+    expect(usable(timid, early, 0.3)).toBe(true);
+  });
+
+  it('leaves extra heat (a wood stove) out of the fit', () => {
+    const truth: RoomModel = { ...model, a: 0.9, b: 0.035, d: 0.05, stepS: 900 };
+    const samples = trajectory(truth, 14);
+    // a stove two evenings a week: 1.5 °C/h of heat the model cannot see, from 17 to 22
+    let tin = samples[0]!.tin;
+    const fired = samples.map((s, k) => {
+      const hour = (k / 4) % 24;
+      const stove = Math.floor(k / 96) % 3 === 0 && hour >= 17 && hour < 22;
+      const out = { ...s, tin: Math.round(tin * 10) / 10, extra: stove };
+      tin = step(truth, tin, s.tout, s.power, s.sun, 0.25) + (stove ? 1.5 * 0.25 : 0);
+      return out;
+    });
+    const end = fired[fired.length - 1]!.t;
+    const opts = { stepS: 900, horizonSteps: 32, halfLifeS: 7 * 86_400, now: end };
+    const left = fitTrajectory(fired, opts)!;
+    const blind = fitTrajectory(fired.map((s) => ({ ...s, extra: false })), opts)!;
+    expect(Math.abs(left.d - truth.d)).toBeLessThan(Math.abs(blind.d - truth.d));
   });
 
   it('weighs recent days more: after a change the fit follows the new room', () => {
@@ -103,9 +128,11 @@ describe('thermal model', () => {
     expect(Math.abs(weighted.b - after.b)).toBeLessThan(Math.abs(flat.b - after.b));
   });
 
-  it('simulate stops at a gap, Nelder–Mead finds a minimum', () => {
+  it('simulate stops at a gap and at extra heat, Nelder–Mead finds a minimum', () => {
     const samples: ThermalSample[] = [0, 900, 1800, 3600].map((t) => ({ t, tin: 18, tout: 0, power: 0, sun: 0 }));
     expect(simulate({ ...model, stepS: 900 }, samples, 0, 10, 900)).toHaveLength(2);
+    samples[1]!.extra = true;
+    expect(simulate({ ...model, stepS: 900 }, samples, 0, 10, 900)).toHaveLength(0);
     const x = nelderMead((v) => (v[0]! - 3) ** 2 + (v[1]! + 1) ** 2, [0, 0], [1, 1]);
     expect(x[0]).toBeCloseTo(3, 3);
     expect(x[1]).toBeCloseTo(-1, 3);
@@ -115,7 +142,7 @@ describe('thermal model', () => {
     expect(usable({ ...model, rmse: 0.2 })).toBe(true);
     expect(usable({ ...model, rmse: 0.2, b: -0.01 })).toBe(false);
     expect(usable({ ...model, rmse: 0.2, a: 0 })).toBe(false);
-    expect(usable({ ...model, rmse: 0.2 }, { rmse: 0.8, max: 1 }, 0.5)).toBe(false);
+    expect(usable({ ...model, rmse: 0.2 }, { overRmse: 0.8, overMax: 1 }, 0.5)).toBe(false);
   });
 
   it('builds samples only where every input is known', () => {

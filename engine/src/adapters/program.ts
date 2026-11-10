@@ -18,7 +18,11 @@
  * run over the last 7 days from measured starts (`backtest`); when it misses by more than `program_max_error` °C
  * (root mean square, default 0.5; or by more than three times that at worst) it is not steered by: the room's target is its comfort, no preheating, until the
  * model has learnt. Kept in STATE_DIR/program.json. The plan is redone every quarter from the temperature measured
- * now, so its own errors are corrected as it goes.
+ * now, so its own errors are corrected as it goes. The check counts only the misses where the model thinks the room
+ * warmer than it is (a plan from it would heat too little or too late); a model that thinks the room slower to warm
+ * than it is only starts early. Extra heat the model cannot know (a wood stove) is left out of the fit and the check:
+ * quarters when the room's `<room>_extra_heat_sensor` (a device id, e.g. a sensor near the stove) reads more than
+ * `program_extra_heat_margin` °C (default 2) above the room's thermostats while they heat at under a fifth of their power.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { Logger } from 'pino';
@@ -49,6 +53,11 @@ export interface ModelCheck {
   /** root mean square and largest miss over the last CHECK_DAYS, °C */
   rmse: number;
   max: number;
+  /** the same over the misses where the model thinks the room warmer than it is: what the trust is decided on */
+  overRmse: number;
+  overMax: number;
+  /** quarters of the fit left out as extra heat (a wood stove, see <room>_extra_heat_sensor) */
+  extra: number;
   /** the last CHECK_SHOWN_H hours: epoch ms, measured °C, model °C */
   points: [number, number, number][];
 }
@@ -121,7 +130,7 @@ export class ProgramService {
   private models = new Map<string, Saved>();
   private localModels = new Map<string, LocalHeaterModel | null>();
   private fittedAt: number | null = null;
-  /** program_learn_since and the half-life the models were fitted with: a change refits at once */
+  /** what the models were fitted with (learnKey): a change refits at once */
   private fittedWith = '';
   private learnFrom = 0;
   private state: ProgramState = { at: 0, fittedAt: null, learn: { from: 0, halfLifeDays: 7, since: null, maxError: 0.5 }, forecast: null, pricesUntil: null, ahead: [], rooms: [], local: [], errors: [] };
@@ -135,8 +144,8 @@ export class ProgramService {
     if (existsSync(opts.stateFile)) {
       try {
         const saved = JSON.parse(readFileSync(opts.stateFile, 'utf8')) as { fittedAt: number; fittedWith?: string; learnFrom?: number; models: Record<string, Saved>; local?: Record<string, LocalHeaterModel | null> };
-        // models saved before the trajectory fit have no check: fit again
-        if (Object.values(saved.models).every((v) => 'check' in v && (!v.model || 'rmse' in v.model))) {
+        // models saved before the trajectory fit or the one-sided check lack what is decided on: fit again
+        if (Object.values(saved.models).every((v) => 'check' in v && (!v.check || 'overRmse' in v.check) && (!v.model || 'rmse' in v.model))) {
           this.fittedAt = saved.fittedAt;
           this.fittedWith = saved.fittedWith ?? '';
           this.learnFrom = saved.learnFrom ?? 0;
@@ -185,6 +194,12 @@ export class ProgramService {
     const [y, m, d] = text.split('-').map(Number) as [number, number, number];
     const ms = new Date(y, m - 1, d).getTime();
     return Number.isNaN(ms) ? { text: null, ms: null } : { text, ms };
+  }
+  /** What the models were learnt with: a change (a date to learn from, the half-life, extra heat settings) refits at once. */
+  private learnKey(): string {
+    const cell = (id: string) => (this.engine.store.has(id) ? String(this.engine.store.get(id) ?? '') : '');
+    const extra = [...this.engine.config.rooms.keys()].map((r) => cell(`${r}_extra_heat_sensor`)).join(',');
+    return [this.learnSince().text ?? '', this.halfLifeDays(), extra, cell('program_extra_heat_margin')].join('|');
   }
   private halfLifeDays(): number {
     return Math.max(0.5, this.num('program_learn_halflife', 7));
@@ -273,6 +288,17 @@ export class ProgramService {
     const halfLife = this.halfLifeDays();
     const iso = (ms: number) => new Date(ms).toISOString();
     const [heating, weather] = await Promise.all([this.opts.history.query('heating', iso(since), iso(until)), this.opts.history.query('weather', iso(since), iso(until))]);
+    // a room's extra heat sensor (<room>_extra_heat_sensor, a device id): the `sensor` constant of its climate history
+    const cfg0 = this.engine.config;
+    const extraSensorOf = (room: string): string | null => {
+      const cell = `${room}_extra_heat_sensor`;
+      const dev = this.engine.store.has(cell) ? this.engine.store.get(cell) : null;
+      if (typeof dev !== 'string' || !dev) return null;
+      const rec = cfg0.history.find((r) => r.collection === 'climate' && r.refs.some((x) => x.split('.')[0] === dev));
+      return rec?.fields.find((f) => f.field === 'sensor')?.source.match(/^"(.*)"$/)?.[1] ?? null;
+    };
+    const extraMargin = this.num('program_extra_heat_margin', 2);
+    const climate = rooms.some((r) => extraSensorOf(r.id)) ? await this.opts.history.query('climate', iso(since), iso(until)) : [];
     const ts = (r: Record<string, unknown>) => (typeof r['when'] === 'string' ? Date.parse(r['when'].replace(' ', 'T')) / 1000 : NaN);
     const series = (rows: Record<string, unknown>[], pick: (r: Record<string, unknown>) => unknown): Points =>
       rows
@@ -295,6 +321,17 @@ export class ProgramService {
         to: until / 1000,
         stepS: FIT_STEP_S,
       });
+      // extra heat (a wood stove): the room's <room>_extra_heat_sensor clearly warmer than its thermostats while they
+      // hardly heat; those quarters are left out of the fit and the check, so the model learns the room without it
+      const ref = extraSensorOf(room.id);
+      if (ref) {
+        const refTemps = series(climate.filter((r) => r['sensor'] === ref), (r) => r['temperature']);
+        const maxKw = room.heaters.reduce((n, h) => n + h.kw, 0);
+        for (const sm of samples) {
+          const y = meanOver(refTemps, sm.t, sm.t + FIT_STEP_S, 2 * 3600);
+          sm.extra = y !== null && y - sm.tin > extraMargin && sm.power < 0.2 * maxKw;
+        }
+      }
       const enough = until - since >= MIN_LEARN_DAYS * 86_400_000;
       const model = enough ? fitTrajectory(samples, { stepS: FIT_STEP_S, horizonSteps: FIT_HORIZON_STEPS, halfLifeS: halfLife * 86_400, now: until / 1000 }) : null;
       let check: ModelCheck | null = null;
@@ -303,7 +340,7 @@ export class ProgramService {
         if (bt) {
           const shownFrom = until / 1000 - CHECK_SHOWN_H * 3600;
           const r = (v: number) => Math.round(v * 100) / 100;
-          check = { rmse: r(bt.rmse), max: r(bt.max), points: bt.points.filter((p) => p[0] >= shownFrom).map((p) => [p[0] * 1000, r(p[1]), r(p[2])]) };
+          check = { rmse: r(bt.rmse), max: r(bt.max), overRmse: r(bt.overRmse), overMax: r(bt.overMax), extra: samples.filter((x) => x.extra).length, points: bt.points.filter((p) => p[0] >= shownFrom).map((p) => [p[0] * 1000, r(p[1]), r(p[2])]) };
         }
       }
       // the observed curve: hourly outdoor temperature against mean heating power, at most ~300 points
@@ -335,7 +372,7 @@ export class ProgramService {
       if (model) await this.reviseLocal(h, model, rows, outdoor);
     }
     this.fittedAt = Date.now();
-    this.fittedWith = `${learn.text ?? ''}|${halfLife}`;
+    this.fittedWith = this.learnKey();
     this.learnFrom = since;
     writeFileSync(this.opts.stateFile, JSON.stringify({ fittedAt: this.fittedAt, fittedWith: this.fittedWith, learnFrom: this.learnFrom, models: Object.fromEntries(this.models), local: Object.fromEntries(this.localModels) }));
   }
@@ -347,7 +384,7 @@ export class ProgramService {
     try {
       const rooms = this.rooms();
       const learn = this.learnSince();
-      const refit = `${learn.text ?? ''}|${this.halfLifeDays()}` !== this.fittedWith;
+      const refit = this.learnKey() !== this.fittedWith;
       if (refit || !this.fittedAt || Date.now() - this.fittedAt > FIT_EVERY_MS || rooms.some((r) => !this.models.has(r.id)) || this.localHeaters().some((h) => !this.localModels.has(h.id))) {
         try {
           await this.fit(rooms);
@@ -430,8 +467,8 @@ export class ProgramService {
         if (!model) entry.note = learn.ms !== null && Date.now() - learn.ms < MIN_LEARN_DAYS * 86_400_000 ? `lär om sedan ${learn.text}, behöver ${MIN_LEARN_DAYS} dygn` : 'för lite historik för en modell';
         else if (!trusted)
           entry.note =
-            check && (check.rmse > maxError || check.max > 3 * maxError)
-              ? `modellen missar senaste veckan med ${check.rmse.toLocaleString('sv-SE')} °C i snitt och som mest ${check.max.toLocaleString('sv-SE')} °C (gränserna är ${maxError.toLocaleString('sv-SE')} och ${(3 * maxError).toLocaleString('sv-SE')}), så lägenas temperaturer gäller utan förvärmning tills den har lärt sig`
+            check && (check.overRmse > maxError || check.overMax > 3 * maxError)
+              ? `modellen tror att rummet är varmare än det är, senaste veckan med ${check.overRmse.toLocaleString('sv-SE')} °C i snitt och som mest ${check.overMax.toLocaleString('sv-SE')} °C (gränserna är ${maxError.toLocaleString('sv-SE')} och ${(3 * maxError).toLocaleString('sv-SE')}), så lägenas temperaturer gäller utan förvärmning tills den har lärt sig`
               : 'modellen är orimlig, så lägenas temperaturer gäller';
         else if (!temps.length) entry.note = 'termostaterna rapporterar ingen temperatur';
         else if (comfort.some((c) => typeof c !== 'number')) entry.note = `${room.id}_<läge> saknas för något läge i schemat`;
