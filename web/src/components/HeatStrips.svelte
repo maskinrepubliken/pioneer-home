@@ -438,15 +438,14 @@
     margin: 0;
     min-width: 0;
   }
-  /* follows the reader down the strips, under the page header (--header-h, set by Header.svelte), as a bar the
-     width of the screen: its fill and bottom rule are painted out to the edges by border-image outsets, which take
-     no room, so the page never gets wider than the screen */
+  /* follows the reader down the strips, under the page header (--header-h, set by Header.svelte); on a phone a bar
+     the width of the screen (see the media query below) */
   .readout {
     position: sticky;
     top: var(--header-h, 0px);
     z-index: 3;
     background: var(--paper-raised);
-    border-image: linear-gradient(var(--paper-raised) 0 0) fill 0 / 0 / 0 100vw;
+    border-bottom: 1px solid var(--line);
     padding: var(--space-2) 0;
     display: flex;
     flex-wrap: wrap;
@@ -457,15 +456,6 @@
     font-size: 13px;
     line-height: 1.4;
     color: var(--ink-muted);
-  }
-  .readout::after {
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 1px;
-    border-image: linear-gradient(var(--line) 0 0) fill 0 / 0 / 0 100vw;
   }
   .when {
     font-family: var(--font-mono);
@@ -633,6 +623,23 @@
   /* On a phone the readout must stay low while it sticks, without sideways scrolling: the values in three columns,
      a room's target next to its temperature, the hour's total on the date line instead of Värme and Kostnad cells,
      and the sources in two columns with their kW. */
+  /* On a phone the readout is a bar the width of the screen: its fill and bottom rule are painted out to the edges by
+     border-image outsets, which take no room, so the page never gets wider than the screen. */
+  @media (max-width: 640px) {
+    .readout {
+      border-bottom: none;
+      border-image: linear-gradient(var(--paper-raised) 0 0) fill 0 / 0 / 0 100vw;
+    }
+    .readout::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 1px;
+      border-image: linear-gradient(var(--line) 0 0) fill 0 / 0 / 0 100vw;
+    }
+  }
   @media (max-width: 560px) {
     .readout {
       gap: 4px;

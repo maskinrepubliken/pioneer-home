@@ -424,14 +424,15 @@
     line-height: 1.5;
   }
   /* Phones: the hero and the panels run to the screen edge minus a small gutter, everything one size down. */
+  /* On a phone the cards run edge to edge: the width of the screen, no rounded corners or side borders. */
   @media (max-width: 640px) {
     .panel {
-      margin-left: calc(-1 * var(--space-2));
-      margin-right: calc(-1 * var(--space-2));
-    }
-    .panel {
-      padding: var(--space-4) var(--space-3);
-      border-radius: var(--radius-card);
+      margin-left: calc(50% - 50vw);
+      margin-right: calc(50% - 50vw);
+      padding: var(--space-4) var(--space-5);
+      border-radius: 0;
+      border-left: none;
+      border-right: none;
     }
     .roomlist {
       padding-top: var(--space-1);

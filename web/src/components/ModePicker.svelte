@@ -297,11 +297,12 @@
     background: currentColor;
   }
   @media (max-width: 640px) {
+    /* edge to edge on a phone, like the other cards on Värme */
     .picker {
-      margin-left: calc(-1 * var(--space-2));
-      margin-right: calc(-1 * var(--space-2));
-      padding: var(--space-4);
-      border-radius: var(--radius-card);
+      margin-left: calc(50% - 50vw);
+      margin-right: calc(50% - 50vw);
+      padding: var(--space-4) var(--space-5);
+      border-radius: 0;
     }
     /* Too narrow for five in a row: the modes on one line, Program and Manuellt under them on the right, each
        button as wide as a mode's. */
