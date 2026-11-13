@@ -1,6 +1,6 @@
 <script lang="ts">
   /**
-   * part="status": heating word and the setpoint as text (the row; the temperature is in the room's readings).
+   * part="status": heating word, BARNLÅS when the keypad is locked, and the setpoint as text (the row; the temperature is in the room's readings).
    * part="setpoint": the device's own setpoint stepper (±0.5, rapid taps coalesced into one `set <id> setpoint=21`),
    * shown under Detaljer since the room's Måltemperatur normally sets it.
    */
@@ -19,6 +19,7 @@
   const setpoint = $derived(num('setpoint'));
   const demand = $derived(num('demand'));
   const running = $derived(props['running']?.value);
+  const locked = $derived(props['locked']?.value === true);
   // An unreachable device's last report is old news: no heating word at all.
   const heating = $derived(
     offline ? null : typeof running === 'string' ? running.toLowerCase() === 'heat' : demand === null ? null : demand > 0,
@@ -48,6 +49,7 @@
     {:else if heating === false}
       <span class="state off">vilar</span>
     {/if}
+    {#if locked}<span class="lock" title="knapparna på termostaten är låsta; i Manuellt öppnas de">barnlås</span>{/if}
   </div>
   {#if setpoint !== null}<Reading value={setpoint} unit="°C" label="mål" />{/if}
 </div>
@@ -72,6 +74,13 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
+  }
+  .lock {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
   }
   /* Heating vs resting is carried by the word: a filled rust badge with a heat icon and the demand, or an
      outlined VILAR. */

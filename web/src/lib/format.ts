@@ -178,6 +178,7 @@ export const PROP_LABEL: Record<string, string> = {
   demand: 'Effektbehov',
   mode: 'Driftläge',
   running: 'Status',
+  locked: 'Barnlås',
   battery: 'Batteri',
   linkquality: 'Signal',
   room: 'Rum',

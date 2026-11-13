@@ -95,6 +95,14 @@ function onOff(v: unknown): boolean | null {
   return null;
 }
 
+/** on/off, true/false, yes/no (a `{formula}` gives TRUE/FALSE). */
+function yesNo(v: string): boolean | null {
+  const s = v.toLowerCase();
+  if (s === 'on' || s === 'true' || s === 'yes') return true;
+  if (s === 'off' || s === 'false' || s === 'no') return false;
+  return null;
+}
+
 const pctFrom254 = (v: number) => Math.round((v / 254) * 100);
 const pctTo254 = (pct: number) => Math.round((Math.max(0, Math.min(100, pct)) / 100) * 254);
 const kelvinFromMireds = (m: number) => (m > 0 ? Math.round(1_000_000 / m) : 0);
@@ -274,7 +282,11 @@ const contact: KindSpec = {
   },
 };
 
-/** Schneider WDE0xxxx floor thermostats and the Namron panel heater share this shape. */
+/**
+ * Schneider WDE0xxxx floor thermostats and the Namron panel heater share this shape, except for the keypad lock:
+ * Schneider reports `keypad_lockout` (unlock | lock1), Namron `child_lock` (UNLOCK | LOCK). Both become the boolean
+ * `locked`; `lock_via` remembers which key the device reports so `set <id> locked=on` sends that one back.
+ */
 const thermostat: KindSpec = {
   name: 'thermostat',
   primary: 'temperature',
@@ -284,10 +296,19 @@ const thermostat: KindSpec = {
     { prop: 'demand', type: 'number' },
     { prop: 'mode', type: 'string', settable: true },
     { prop: 'running', type: 'string' },
+    { prop: 'locked', type: 'boolean', settable: true },
+    { prop: 'lock_via', type: 'string' },
     { prop: 'linkquality', type: 'number' },
   ],
   fromPayload(p) {
     const out: Record<string, Value> = {};
+    if (typeof p['keypad_lockout'] === 'string') {
+      out['locked'] = p['keypad_lockout'].toLowerCase() !== 'unlock';
+      out['lock_via'] = 'keypad_lockout';
+    } else if (typeof p['child_lock'] === 'string') {
+      out['locked'] = p['child_lock'].toUpperCase() === 'LOCK';
+      out['lock_via'] = 'child_lock';
+    }
     const t = num(p['local_temperature']);
     if (t !== null) out['temperature'] = t;
     const sp = num(p['occupied_heating_setpoint']);
@@ -300,12 +321,19 @@ const thermostat: KindSpec = {
     if (lq !== null) out['linkquality'] = lq;
     return out;
   },
-  toPayload(targets) {
+  toPayload(targets, current) {
     const set: RawState = {};
     for (const t of targets) {
       if (t.key === 'setpoint' || t.key === 'level') set['occupied_heating_setpoint'] = Number(t.value);
       else if (t.key === 'mode') set['system_mode'] = t.value;
-      else throw KIND_ERR(`thermostat cannot set "${t.key}"`);
+      else if (t.key === 'locked') {
+        const on = yesNo(t.value);
+        if (on === null) throw KIND_ERR(`locked wants on or off, not "${t.value}"`);
+        const via = current('lock_via');
+        if (via === 'keypad_lockout') set['keypad_lockout'] = on ? 'lock1' : 'unlock';
+        else if (via === 'child_lock') set['child_lock'] = on ? 'LOCK' : 'UNLOCK';
+        else throw KIND_ERR('thermostat has not reported a keypad lock yet');
+      } else throw KIND_ERR(`thermostat cannot set "${t.key}"`);
     }
     return set;
   },

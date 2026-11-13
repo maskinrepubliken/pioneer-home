@@ -260,6 +260,40 @@ describe('engine passes', () => {
     expect(sim.get('hall.light.last_seen')).not.toBeNull();
   });
 
+  describe('thermostat keypad lock', () => {
+    const TH = 'id\troom\tkind\tsource\nth\thall\tthermostat\tz2m:TH\nnam\thall\tthermostat\tz2m:NAM\n';
+    const setup = () => new Simulator(makeConfig({ 'devices.tsv': TH }), { at: at('2026-11-04T20:00'), echo: false });
+
+    it('reads keypad_lockout (Schneider) and child_lock (Namron) as the boolean locked', () => {
+      const sim = setup();
+      sim.mqtt('zigbee2mqtt/TH', '{"keypad_lockout":"lock1"}');
+      sim.mqtt('zigbee2mqtt/NAM', '{"child_lock":"UNLOCK"}');
+      expect(sim.get('th.locked')).toBe(true);
+      expect(sim.get('nam.locked')).toBe(false);
+    });
+
+    it('sends the lock back under the key the device reports', () => {
+      const sim = setup();
+      sim.mqtt('zigbee2mqtt/TH', '{"keypad_lockout":"unlock"}');
+      sim.mqtt('zigbee2mqtt/NAM', '{"child_lock":"LOCK"}');
+      sim.action('set th locked={TRUE}');
+      sim.action('set nam locked=off');
+      expect(sets(sim).map((m) => `${m.topic} ${m.payload}`)).toEqual([
+        'zigbee2mqtt/TH/set {"keypad_lockout":"lock1"}',
+        'zigbee2mqtt/NAM/set {"child_lock":"UNLOCK"}',
+      ]);
+    });
+
+    it('refuses to lock a thermostat that has not reported its lock', () => {
+      const sim = setup();
+      const errors: string[] = [];
+      sim.engine.onTrace((t) => errors.push(...t.actions.flatMap((a) => (a.error ? [a.error] : []))));
+      sim.action('set th locked=on');
+      expect(sets(sim)).toHaveLength(0);
+      expect(errors.some((e) => e.includes('has not reported a keypad lock'))).toBe(true);
+    });
+  });
+
   describe('resending a command z2m could not deliver', () => {
     const TH = 'id\troom\tkind\tsource\nth\thall\tthermostat\tz2m:TH\n';
     const fail = (sim: Simulator) =>

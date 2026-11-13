@@ -42,7 +42,7 @@
   const seenAt = $derived(isTimestamp(lastSeen ?? null) ? (lastSeen as { $timestamp: number }).$timestamp : null);
   // last_seen is the "sedd för …" line above the list.
   // Unknown values (NULL) say nothing and are left out. A heater with its own clock is never heard from (no availability) and carries the room's temperature: neither says anything about it.
-  const HIDDEN: Record<string, string[]> = { heater: ['available', 'temperature'] };
+  const HIDDEN: Record<string, string[]> = { heater: ['available', 'temperature'], thermostat: ['lock_via'] };
   const details = $derived(device.cells.filter((c) => c.prop !== 'last_seen' && !(PRIMARY[device.kind] ?? []).includes(c.prop ?? '') && !(HIDDEN[device.kind] ?? []).includes(c.prop ?? '') && c.value !== null));
 
   const num = (prop: string): number | null => {

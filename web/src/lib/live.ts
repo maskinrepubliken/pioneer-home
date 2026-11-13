@@ -145,7 +145,7 @@ export function activeAlerts(cells: Cell[]): LiveAlert[] {
     .sort((a, b) => ALERT_RANK[a.level] - ALERT_RANK[b.level] || a.id.localeCompare(b.id));
 }
 
-const PROP_ORDER = ['state', 'brightness', 'color_temp', 'color', 'level', 'occupancy', 'open', 'temperature', 'humidity', 'setpoint', 'demand', 'mode', 'running', 'illuminance', 'action', 'power', 'energy', 'pressure', 'battery', 'linkquality', 'room', 'room_name', 'available', 'last_seen'];
+const PROP_ORDER = ['state', 'brightness', 'color_temp', 'color', 'level', 'occupancy', 'open', 'temperature', 'humidity', 'setpoint', 'demand', 'mode', 'running', 'locked', 'illuminance', 'action', 'power', 'energy', 'pressure', 'battery', 'linkquality', 'room', 'room_name', 'available', 'last_seen'];
 export function propOrder(a: Cell, b: Cell): number {
   const ia = PROP_ORDER.indexOf(a.prop ?? '');
   const ib = PROP_ORDER.indexOf(b.prop ?? '');
