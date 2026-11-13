@@ -49,7 +49,7 @@
   const held = $derived(modes.map((m) => ({ id: m.id, name: m.name, what: 'tills du väljer något annat' })));
   const others = [
     { id: PROGRAM, name: PROGRAM_NAME, what: 'veckoschemat, värmer när elen är billig' },
-    { id: MANUAL, name: MANUAL_NAME, what: 'målen som de är nu, ändras för hand' },
+    { id: MANUAL, name: MANUAL_NAME, what: 'målen som de är nu, ändras för hand, i appen eller på termostaterna (i andra lägen ställs en vriden termostat tillbaka)' },
   ];
   const choices = $derived([...held, ...others]);
 
@@ -139,7 +139,7 @@
     {:else if heat.mode === null}
       Inga värmelägen i tabellerna än (heat_mode i Celler).
     {:else if heat.mode === MANUAL}
-      Målen är ändrade för hand och gäller tills du väljer Program eller ett läge.
+      Målen är ändrade för hand och gäller tills du väljer Program eller ett läge. Termostaterna kan vridas.
     {:else if heat.mode === PROGRAM}
       {#if heat.transition}Övergång.{/if}
       {#if next}Nästa: {next.modes.length ? next.modes.map(name).join(' + ') : 'inget läge'} {when(next.at)}.{/if}

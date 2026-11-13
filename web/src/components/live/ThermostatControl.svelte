@@ -49,7 +49,7 @@
     {:else if heating === false}
       <span class="state off">vilar</span>
     {/if}
-    {#if locked}<span class="lock" title="knapparna på termostaten är låsta; i Manuellt öppnas de">barnlås</span>{/if}
+    {#if locked}<span class="lock" title="knapparna på termostaten är låsta">barnlås</span>{/if}
   </div>
   {#if setpoint !== null}<Reading value={setpoint} unit="°C" label="mål" />{/if}
 </div>

@@ -490,7 +490,6 @@ export const ACTION_SECTIONS: DocSection[] = [
       { code: 'set lamp1 brightness+=20%', text: 'relativt: enheten räknar själv' },
       { code: 'set fan 40', text: 'fläktnivå 0–100, eller börvärde på en termostat' },
       { code: 'set floor1 setpoint=21 mode=heat', text: 'termostat' },
-      { code: 'set floor1 locked={heat_mode <> "manual"}', text: 'barnlås på termostaten utom i Manuellt' },
       { code: 'set fan_auto FALSE', text: 'skriv en cell utan formel (ett hållet värde)' },
       { code: 'set thermostat in living_room setpoint={living_room_target}', text: 'alla enheter av ett slag i ett rum, bestäms när åtgärden körs (flytta en termostat så följer den med)' },
     ],
