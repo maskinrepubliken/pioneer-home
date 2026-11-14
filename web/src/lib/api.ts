@@ -169,6 +169,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** GET /api/heatloss (engine/src/adapters/heatloss.ts, core/heatloss.ts): W/K per era between the events, from quiet nights. */
+export interface HeatLossEra {
+  from: number;
+  at: string;
+  title: string;
+  nights: number;
+  ua: number | null;
+  se: number | null;
+  perNight: { date: string; ua: number }[];
+}
+export interface HeatLossState {
+  at: number;
+  window: { from: string; to: string };
+  steady: number;
+  rooms: string[];
+  freeHeat: number | null;
+  eras: HeatLossEra[];
+  measured: number;
+  counted: number;
+  extra: number;
+  unsteady: number;
+  errors: string[];
+}
+
 /** GET /api/program (engine/src/adapters/program.ts): the program planner's models, curves and plans. */
 export interface RoomModel {
   a: number;
@@ -268,6 +292,7 @@ export const api = {
   prices: (since: Date, until: Date) =>
     request<{ since: number; until: number; slots: PriceSlot[] }>(`/api/prices?since=${encodeURIComponent(since.toISOString())}&until=${encodeURIComponent(until.toISOString())}`),
   program: () => request<ProgramState>('/api/program'),
+  heatLoss: () => request<HeatLossState>('/api/heatloss'),
   history: (collection: string, since: Date, until: Date) =>
     request<HistoryResponse>(`/api/history/${encodeURIComponent(collection)}?since=${encodeURIComponent(since.toISOString())}&until=${encodeURIComponent(until.toISOString())}`),
 };

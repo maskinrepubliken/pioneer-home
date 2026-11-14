@@ -26,6 +26,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { Logger } from 'pino';
+import type { Config } from '../config/model.js';
 import type { Engine } from '../core/engine.js';
 import { comfortBand, planRoom, type Plan, type PlanInput } from '../core/planner.js';
 import { backtest, buildSamples, fitLocalHeater, fitTrajectory, holdingPower, iconOctas, localDemand, meanOver, solarElevation, sunFactor, usable, type LocalHeaterModel, type LocalSample, type Points, type RoomModel } from '../core/thermal.js';
@@ -68,7 +69,7 @@ interface Saved {
   check: ModelCheck | null;
 }
 
-interface Heater {
+export interface Heater {
   id: string;
   kw: number;
   /** the `sensor` constant of its heating history record */
@@ -124,6 +125,35 @@ export interface ProgramState {
   rooms: ProgramRoom[];
   local: LocalHeaterState[];
   errors: string[];
+}
+
+/** Heated rooms: a `_target` cell and thermostats with watts whose heating history record names them. */
+export function heatedRooms(cfg: Config): { id: string; name: string; heaters: Heater[] }[] {
+  const sensorOf = new Map<string, string>();
+  for (const rec of cfg.history) {
+    if (rec.collection !== 'heating') continue;
+    const constant = rec.fields.find((f) => f.field === 'sensor')?.source.match(/^"(.*)"$/)?.[1];
+    const device = rec.refs.map((r) => r.split('.')[0]!).find((d) => cfg.devices.get(d)?.kind.name === 'thermostat');
+    if (constant && device && !sensorOf.has(device)) sensorOf.set(device, constant);
+  }
+  const out: { id: string; name: string; heaters: Heater[] }[] = [];
+  for (const room of cfg.rooms.values()) {
+    if (!cfg.cells.has(`${room.id}_target`)) continue;
+    const heaters = [...cfg.devices.values()]
+      .filter((d) => d.room === room.id && d.kind.name === 'thermostat' && d.watts && sensorOf.has(d.id))
+      .map((d) => ({ id: d.id, kw: d.watts! / 1000, sensor: sensorOf.get(d.id)! }));
+    if (heaters.length) out.push({ id: room.id, name: room.name, heaters });
+  }
+  return out;
+}
+
+/** The `sensor` constant of the climate history of a room's `<room>_extra_heat_sensor` (a device id), or null. */
+export function extraHeatSensor(engine: Engine, room: string): string | null {
+  const cell = `${room}_extra_heat_sensor`;
+  const dev = engine.store.has(cell) ? engine.store.get(cell) : null;
+  if (typeof dev !== 'string' || !dev) return null;
+  const rec = engine.config.history.find((r) => r.collection === 'climate' && r.refs.some((x) => x.split('.')[0] === dev));
+  return rec?.fields.find((f) => f.field === 'sensor')?.source.match(/^"(.*)"$/)?.[1] ?? null;
 }
 
 export class ProgramService {
@@ -205,25 +235,8 @@ export class ProgramService {
     return Math.max(0.5, this.num('program_learn_halflife', 7));
   }
 
-  /** Heated rooms: a `_target` cell and thermostats with watts whose heating history record names them. */
   private rooms(): { id: string; name: string; heaters: Heater[] }[] {
-    const cfg = this.engine.config;
-    const sensorOf = new Map<string, string>();
-    for (const rec of cfg.history) {
-      if (rec.collection !== 'heating') continue;
-      const constant = rec.fields.find((f) => f.field === 'sensor')?.source.match(/^"(.*)"$/)?.[1];
-      const device = rec.refs.map((r) => r.split('.')[0]!).find((d) => cfg.devices.get(d)?.kind.name === 'thermostat');
-      if (constant && device && !sensorOf.has(device)) sensorOf.set(device, constant);
-    }
-    const out: { id: string; name: string; heaters: Heater[] }[] = [];
-    for (const room of cfg.rooms.values()) {
-      if (!cfg.cells.has(`${room.id}_target`)) continue;
-      const heaters = [...cfg.devices.values()]
-        .filter((d) => d.room === room.id && d.kind.name === 'thermostat' && d.watts && sensorOf.has(d.id))
-        .map((d) => ({ id: d.id, kw: d.watts! / 1000, sensor: sensorOf.get(d.id)! }));
-      if (heaters.length) out.push({ id: room.id, name: room.name, heaters });
-    }
-    return out;
+    return heatedRooms(this.engine.config);
   }
 
   /**
@@ -289,14 +302,7 @@ export class ProgramService {
     const iso = (ms: number) => new Date(ms).toISOString();
     const [heating, weather] = await Promise.all([this.opts.history.query('heating', iso(since), iso(until)), this.opts.history.query('weather', iso(since), iso(until))]);
     // a room's extra heat sensor (<room>_extra_heat_sensor, a device id): the `sensor` constant of its climate history
-    const cfg0 = this.engine.config;
-    const extraSensorOf = (room: string): string | null => {
-      const cell = `${room}_extra_heat_sensor`;
-      const dev = this.engine.store.has(cell) ? this.engine.store.get(cell) : null;
-      if (typeof dev !== 'string' || !dev) return null;
-      const rec = cfg0.history.find((r) => r.collection === 'climate' && r.refs.some((x) => x.split('.')[0] === dev));
-      return rec?.fields.find((f) => f.field === 'sensor')?.source.match(/^"(.*)"$/)?.[1] ?? null;
-    };
+    const extraSensorOf = (room: string) => extraHeatSensor(this.engine, room);
     const extraMargin = this.num('program_extra_heat_margin', 2);
     const climate = rooms.some((r) => extraSensorOf(r.id)) ? await this.opts.history.query('climate', iso(since), iso(until)) : [];
     const ts = (r: Record<string, unknown>) => (typeof r['when'] === 'string' ? Date.parse(r['when'].replace(' ', 'T')) / 1000 : NaN);

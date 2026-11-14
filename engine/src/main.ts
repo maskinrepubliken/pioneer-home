@@ -26,6 +26,7 @@ import { startWeather } from './adapters/weather.js';
 import { PriceService } from './adapters/prices.js';
 import { ForecastService } from './adapters/forecast.js';
 import { ProgramService } from './adapters/program.js';
+import { HeatLossService } from './adapters/heatloss.js';
 import { DryRunReport } from './adapters/dryrun.js';
 import { HistoryTracker } from './core/history.js';
 import { formatConfigError } from './config/errors.js';
@@ -136,8 +137,11 @@ async function main(): Promise<void> {
   if (prices) programOpts.prices = prices;
   const program = new ProgramService(engine, programOpts, log);
   const stopProgram = program.start();
+  // The house's heat loss per era between the events (adapters/heatloss.ts): quiet nights, measured as they pass.
+  const heatLoss = new HeatLossService(engine, { history: sink, stateFile: resolve(stateDir, 'heatloss.json') }, log);
+  const stopHeatLoss = heatLoss.start();
 
-  const httpOpts: import('./adapters/http.js').HttpOptions = { port, host, webDir: existsSync(webDir) ? webDir : null, tablesDir, dryRun, traceBuffer: 300, history: sink, program };
+  const httpOpts: import('./adapters/http.js').HttpOptions = { port, host, webDir: existsSync(webDir) ? webDir : null, tablesDir, dryRun, traceBuffer: 300, history: sink, program, heatLoss };
   if (prices) httpOpts.prices = prices;
   if (dryRunReport) httpOpts.dryRunReport = dryRunReport;
   httpOpts.onTableSaved = () => reloadTables(tablesDir, engine, log, (error) => http.configChanged(error));
@@ -153,6 +157,7 @@ async function main(): Promise<void> {
     stopWeather();
     stopPrices();
     stopProgram();
+    stopHeatLoss();
     engine.dispose();
     history.dispose();
     await stopWatching();

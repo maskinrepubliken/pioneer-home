@@ -7,6 +7,7 @@
    */
   import CostBars from '../components/CostBars.svelte';
   import EventsPanel from '../components/EventsPanel.svelte';
+  import HeatLossPanel from '../components/HeatLossPanel.svelte';
   import { parseEvents } from '../lib/events';
   import { api, ApiError, type PriceSlot } from '../lib/api';
   import { applianceOrder, computeCosts, costPerBucket, isUnreachable, kr, meanSpot, type CostResult } from '../lib/cost';
@@ -257,6 +258,9 @@
     </p>
   </section>
 {/if}
+
+<HeatLossPanel />
+
 
 <style>
   .controls {
