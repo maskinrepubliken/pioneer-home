@@ -33,6 +33,17 @@
   const perDay = (ua: number) => Math.max(0, Math.round(((ua * 18 - (st?.freeHeat ?? 0)) * 24) / 100) / 10);
   const rooms = $derived((st?.rooms ?? []).map((r) => roomName(r, home.rooms).toLowerCase()).join(' och '));
   let open = $state(false);
+
+  /** The worked example: the newest era with a value, compared with the first one */
+  const n = (v: number, d = 0) => v.toLocaleString('sv-SE', { maximumFractionDigits: d, minimumFractionDigits: d });
+  const valued = $derived((st?.eras ?? []).filter((e) => e.ua !== null));
+  const latest = $derived(valued[valued.length - 1] ?? null);
+  const first = $derived(valued.length > 1 ? valued[0]! : null);
+  const q = $derived(st?.freeHeat ?? 0);
+  const at = (ua: number, out: number) => {
+    const w = ua * (18 - out);
+    return { diff: 18 - out, w, kw: Math.max(0, w - q) / 1000 };
+  };
 </script>
 
 <section class="panel" aria-labelledby="h-heatloss">
@@ -65,6 +76,33 @@
         {/each}
       </tbody>
     </table>
+    {#if latest && latest.ua !== null}
+      {@const ua = latest.ua}
+      {@const zero = at(ua, 0)}
+      {@const cold = at(ua, -10)}
+      <div class="how">
+        <h4>Så räknas det</h4>
+        <p>
+          W/K betyder watt per kelvin; en kelvin är lika stort steg som en grad. Det är hur mycket värme som hela tiden läcker ut för
+          varje grad det är varmare inne än ute.
+        </p>
+        <p>
+          Med <b>{ua} W/K</b> ({latest.title ? `sedan ${day(latest.at)}` : 'hela mätningen'}), 18 °C inne och 0 °C ute: {ua} × {zero.diff} = {n(zero.w)} W.
+          {#if q}Rummen får {q} W utan el, så elementen ger {n(zero.w)} − {q} ≈ {n(zero.kw, 2)} kW{:else}Elementen ger {n(zero.kw, 2)} kW{/if}; × 24 timmar ≈ <b>{n(zero.kw * 24)} kWh per dygn</b>.
+        </p>
+        <p>
+          Vid −10 °C ute är skillnaden {cold.diff} grader: {ua} × {cold.diff} = {n(cold.w)} W{#if q}, − {q} W ≈ {n(cold.kw, 2)} kW{:else} ≈ {n(cold.kw, 2)} kW{/if}.
+        </p>
+        {#if first && first.ua !== null && first.ua !== ua}
+          {@const d = first.ua - ua}
+          <p>
+            Från {first.ua} till {ua} W/K är {n(Math.abs(d))} W {d > 0 ? 'mindre' : 'mer'} per grad. Vid 0 °C ute: {n(Math.abs(d))} × 18 = {n(Math.abs(d) * 18)} W,
+            ungefär <b>{n((Math.abs(d) * 18 * 24) / 1000, 1)} kWh per dygn {d > 0 ? 'mindre' : 'mer'}</b>.
+          </p>
+        {/if}
+        <p>Måttet beror inte på vädret, så en kall och en mild vecka går att jämföra rakt av.</p>
+      </div>
+    {/if}
     <p class="note">
       {st.counted} av {st.measured} nätter räknas{#if st.extra}{" "}({st.extra} med eldning och {st.unsteady} då rummen svalnade eller värmdes){/if}.
       {#if st.freeHeat !== null}Rummen får också ungefär {st.freeHeat} W utan el (resten av huset, apparater); det räknas in, annars ser milda nätter bättre ut än kalla.{:else}Värdena kommer när minst fem stilla nätter är mätta.{/if}
@@ -138,6 +176,24 @@
     font-family: var(--font-mono);
     font-size: 12px;
     color: var(--ink-muted);
+  }
+  .how {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    font-size: 14px;
+    line-height: 1.5;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line);
+  }
+  .how h4 {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0;
+  }
+  .how p {
+    margin: 0;
+    max-width: 62ch;
   }
   .note {
     margin: 0;
