@@ -61,17 +61,18 @@
       Lägre är bättre. En rad per tid mellan två händelser.
     </p>
     <table class="loss">
-      <thead><tr><th>Från</th><th>Nätter</th><th>W/K</th><th title="vid 0 °C ute och 18 °C inne">kWh/dygn</th></tr></thead>
+      <thead><tr><th>Från</th><th>Nätter</th><th>W/K</th><th class="kwh" title="vid 0 °C ute och 18 °C inne">kWh/dygn</th><th title="alla stilla nätter, även med eldning">Med eld</th></tr></thead>
       <tbody>
         {#each st.eras as e, i (i)}
           <tr>
             <td>{e.at ? day(e.at) : '—'}{#if e.title}<span class="title"> · {e.title}</span>{:else if i === 0}<span class="title"> · mätningen börjar</span>{/if}</td>
             <td class="value">{e.nights}</td>
             <td class="value">{#if e.ua !== null}<b>{e.ua}</b>{#if e.se !== null}<span class="pm"> ±{e.se}</span>{/if}{:else}—{/if}</td>
-            <td class="value">{e.ua !== null ? perDay(e.ua) : '—'}</td>
+            <td class="value kwh">{e.ua !== null ? perDay(e.ua) : '—'}</td>
+            <td class="value loose">{#if st.loose?.eras[i]?.ua != null}{st.loose.eras[i]!.ua}<span class="pm"> ({st.loose.eras[i]!.nights})</span>{:else}—{/if}</td>
           </tr>
           {#if open && e.perNight.length}
-            <tr class="nights"><td colspan="4">{e.perNight.slice(-14).map((n) => `${day(n.date)} ${n.ua}`).join(' · ')}</td></tr>
+            <tr class="nights"><td colspan="5">{e.perNight.slice(-14).map((n) => `${day(n.date)} ${n.ua}`).join(' · ')}</td></tr>
           {/if}
         {/each}
       </tbody>
@@ -107,6 +108,10 @@
       {st.counted} av {st.measured} nätter räknas{#if st.extra}{" "}({st.extra} med eldning och {st.unsteady} då rummen svalnade eller värmdes){/if}.
       {#if st.freeHeat !== null}Rummen får också ungefär {st.freeHeat} W utan el (resten av huset, apparater); det räknas in, annars ser milda nätter bättre ut än kalla.{:else}Värdena kommer när minst fem stilla nätter är mätta.{/if}
       kWh/dygn: vad värmen skulle dra vid 0 °C ute och 18 °C inne. ± är osäkerheten; med få nätter är den stor.
+      Eldning syns som att rummets givare för extra värme (&lt;rum&gt;_extra_heat_sensor) är mer än 2 °C varmare än termostaterna, eller att rummen blir varmare utan att elementen
+      värmer och utan sol. Med eld: samma mått med alla stilla nätter, även dem efter eldning (antal nätter inom parentes); fler
+      nätter men grövre, eftersom värmen från brasan får huset att se bättre ut än det är. Nätter då programmet värmer upp eller
+      låter rummen svalna räknas inte i något av måtten.
     </p>
     {#if st.errors.length}<p class="small errors">{st.errors.join(' · ')}</p>{/if}
   {/if}
@@ -171,6 +176,15 @@
   }
   .pm {
     font-size: 12px;
+  }
+  .loose {
+    color: var(--ink-muted);
+  }
+  /* a phone: kWh/dygn is worked out under Så räknas det */
+  @media (max-width: 480px) {
+    .kwh {
+      display: none;
+    }
   }
   .nights td {
     font-family: var(--font-mono);
