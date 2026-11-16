@@ -253,7 +253,7 @@ export function coolingHours(samples: ZoneSample[], from: number, to: number, st
 }
 
 /** At least this many cooling hours before an era gets a value. */
-const MIN_COOLING_HOURS = 6;
+const MIN_COOLING_HOURS = 3;
 
 /**
  * Heat loss from cooling: the zone cools as C·dT/dt = −(UA·ΔT − Q). The capacity C (kWh/K: what walls and air hold,
