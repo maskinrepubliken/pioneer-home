@@ -55,7 +55,7 @@
 
 <section class="panel" aria-labelledby="h-heatloss">
   <header class="head">
-    <h3 id="h-heatloss">Värmeförlust</h3>
+    <h3 id="h-heatloss">Energieffektivitet</h3>
     {#if st && st.counted}<button class="btn small" onclick={() => (open = !open)} aria-expanded={open}>{open ? 'Dölj mätningarna' : 'Mätningarna'}</button>{/if}
   </header>
   {#if failed && !st}
