@@ -1,7 +1,8 @@
 <script lang="ts">
   /**
-   * The house's heat loss (GET /api/heatloss; engine core/heatloss.ts): watts per °C between inside and out, from quiet
-   * nights, one row per era between the events in events.tsv, so a renovation step or insulation shows as a change.
+   * The house's heat loss (GET /api/heatloss; engine core/heatloss.ts): watts per °C between inside and out, measured two
+   * ways in the dark (Jämn värme: steady hours; Avsvalning: cooling hours with the heaters at rest), one row per era
+   * between the events in events.tsv, so a renovation step or insulation shows as a change.
    * The engine measures each night as it passes; this only shows it. Lower is better. Under Nätterna each night's own
    * value, the newest last.
    */
@@ -29,16 +30,22 @@
     const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
     return `${d.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })}${m[4] ? ` ${m[4]}` : ''}`;
   };
-  /** kWh a day at 0 °C outside and 18 °C inside, with the free heat taken off */
-  const perDay = (ua: number) => Math.max(0, Math.round(((ua * 18 - (st?.freeHeat ?? 0)) * 24) / 100) / 10);
   const rooms = $derived((st?.rooms ?? []).map((r) => roomName(r, home.rooms).toLowerCase()).join(' och '));
   let open = $state(false);
 
-  /** The worked example: the newest era with a value, compared with the first one */
+  /** The worked example: the newest value of either measure (jämn värme first), compared with the first one */
   const n = (v: number, d = 0) => v.toLocaleString('sv-SE', { maximumFractionDigits: d, minimumFractionDigits: d });
-  const valued = $derived((st?.eras ?? []).filter((e) => e.ua !== null));
-  const latest = $derived(valued[valued.length - 1] ?? null);
-  const first = $derived(valued.length > 1 ? valued[0]! : null);
+  const values = $derived(
+    (st?.eras ?? []).flatMap((e, i) => {
+      const when = e.title ? `sedan ${day(e.at)}` : 'från mätningens början';
+      const c = st?.cooling?.eras[i];
+      if (e.ua !== null) return [{ ua: e.ua, label: `jämn värme, ${when}` }];
+      if (c && c.ua !== null) return [{ ua: c.ua, label: `avsvalning, ${when}` }];
+      return [];
+    }),
+  );
+  const latest = $derived(values[values.length - 1] ?? null);
+  const first = $derived(values.length > 1 ? values[0]! : null);
   const q = $derived(st?.freeHeat ?? 0);
   const at = (ua: number, out: number) => {
     const w = ua * (18 - out);
@@ -57,26 +64,39 @@
     <p class="small faint">Hämtar…</p>
   {:else}
     <p class="small">
-      Watt per grad mellan inne och ute i {rooms || 'de uppvärmda rummen'}, mätt i mörker (kväll, natt, tidig morgon) under tretimmarsperioder då rummen höll jämn temperatur och ingen eldade.
-      Lägre är bättre. En rad per tid mellan två händelser.
+      Hur mycket värme {rooms || 'de uppvärmda rummen'} tappar, mätt på två sätt i mörker (ingen sol). Lägre är bättre.
+      En rad per tid mellan två händelser; antalet mätningar inom parentes.
     </p>
     <table class="loss">
-      <thead><tr><th>Från</th><th title="tretimmarsperioder i mörker">Antal</th><th>W/K</th><th class="kwh" title="vid 0 °C ute och 18 °C inne">kWh/dygn</th><th title="alla stilla nätter, även med eldning">Med eld</th></tr></thead>
+      <thead><tr><th>Från</th><th title="tretimmarsperioder då rummen höll jämn temperatur">Jämn värme</th><th title="timmar då rummen svalnade med elementen i vila">Avsvalning</th></tr></thead>
       <tbody>
         {#each st.eras as e, i (i)}
+          {@const c = st.cooling?.eras[i]}
           <tr>
-            <td>{e.at ? day(e.at) : '—'}{#if e.title}<span class="title"> · {e.title}</span>{:else if i === 0}<span class="title"> · mätningen börjar</span>{/if}</td>
-            <td class="value">{e.nights}</td>
-            <td class="value">{#if e.ua !== null}<b>{e.ua}</b>{#if e.se !== null}<span class="pm"> ±{e.se}</span>{/if}{:else}—{/if}</td>
-            <td class="value kwh">{e.ua !== null ? perDay(e.ua) : '—'}</td>
-            <td class="value loose">{#if st.loose?.eras[i]?.ua != null}{st.loose.eras[i]!.ua}<span class="pm"> ({st.loose.eras[i]!.nights})</span>{:else}—{/if}</td>
+            <td>{e.at ? day(i === 0 ? e.at.slice(0, 10) : e.at) : '—'}{#if e.title}<span class="title"> · {e.title}</span>{:else if i === 0}<span class="title"> · mätningen börjar</span>{/if}</td>
+            <td class="value">{#if e.ua !== null}<b>{e.ua}</b>{#if e.se !== null}<span class="pm"> ±{e.se}</span>{/if}{:else}—{/if}<span class="pm"> ({e.nights})</span></td>
+            <td class="value">{#if c && c.ua !== null}<b>{c.ua}</b>{#if c.se !== null}<span class="pm"> ±{c.se}</span>{/if}{:else}—{/if}<span class="pm"> ({c?.hours ?? 0})</span></td>
           </tr>
           {#if open && e.perNight.length}
-            <tr class="nights"><td colspan="5">{e.perNight.slice(-14).map((n) => `${day(n.date)} ${n.ua}`).join(' · ')}</td></tr>
+            <tr class="nights"><td colspan="3">{e.perNight.slice(-14).map((n) => `${day(n.date)} ${n.ua}`).join(' · ')}</td></tr>
           {/if}
         {/each}
       </tbody>
     </table>
+    <div class="how">
+      <h4>Två sätt att mäta</h4>
+      <p>
+        <b>Jämn värme:</b> tretimmarsperioder i mörker då rummen höll jämn temperatur och ingen eldade. Då är elen elementen drar lika
+        med värmen som läcker ut. Det säkraste måttet, men det kräver att rummen står still, och det gör de sällan när programmet
+        låter dem svalna på kvällen och värmer upp dem på natten.
+      </p>
+      <p>
+        <b>Avsvalning:</b> timmar i mörker då elementen vilar och rummen svalnar. Hur fort de svalnar visar hur fort värmen läcker ut,
+        räknat med hur mycket värme huset rymmer{#if st.cooling?.capacity}{" "}(ungefär {n(st.cooling.capacity, 1)} kWh per grad){/if}. Det lärs
+        in där båda måtten finns och ändras inte av isolering. Fler mätningar med ert schema, men grövre. Timmar efter att rummen värmts
+        upp utan el (en brasa) räknas inte.
+      </p>
+    </div>
     {#if latest && latest.ua !== null}
       {@const ua = latest.ua}
       {@const zero = at(ua, 0)}
@@ -84,34 +104,31 @@
       <div class="how">
         <h4>Så räknas det</h4>
         <p>
-          W/K betyder watt per kelvin; en kelvin är lika stort steg som en grad. Det är hur mycket värme som hela tiden läcker ut för
-          varje grad det är varmare inne än ute.
+          Båda måtten ger watt per kelvin (W/K); en kelvin är lika stort steg som en grad. Det är hur mycket värme som hela tiden läcker
+          ut för varje grad det är varmare inne än ute.
         </p>
         <p>
-          Med <b>{ua} W/K</b> ({latest.title ? `sedan ${day(latest.at)}` : 'hela mätningen'}), 18 °C inne och 0 °C ute: {ua} × {zero.diff} = {n(zero.w)} W.
-          {#if q}Rummen får {q} W utan el, så elementen ger {n(zero.w)} − {q} ≈ {n(zero.kw, 2)} kW{:else}Elementen ger {n(zero.kw, 2)} kW{/if}; × 24 timmar ≈ <b>{n(zero.kw * 24)} kWh per dygn</b>.
+          Med <b>{ua} W/K</b> ({latest.label}), 18 °C inne och 0 °C ute: {ua} × {zero.diff} = {n(zero.w)} W.
+          {#if q}Rummen får {q} W utan el (resten av huset, apparater), så elementen ger {n(zero.w)} − {q} ≈ {n(zero.kw, 2)} kW{:else}Elementen ger {n(zero.kw, 2)} kW{/if}; × 24 timmar ≈ <b>{n(zero.kw * 24)} kWh per dygn</b>.
         </p>
         <p>
           Vid −10 °C ute är skillnaden {cold.diff} grader: {ua} × {cold.diff} = {n(cold.w)} W{#if q}, − {q} W ≈ {n(cold.kw, 2)} kW{:else} ≈ {n(cold.kw, 2)} kW{/if}.
         </p>
-        {#if first && first.ua !== null && first.ua !== ua}
+        {#if first && first.ua !== latest.ua}
           {@const d = first.ua - ua}
           <p>
-            Från {first.ua} till {ua} W/K är {n(Math.abs(d))} W {d > 0 ? 'mindre' : 'mer'} per grad. Vid 0 °C ute: {n(Math.abs(d))} × 18 = {n(Math.abs(d) * 18)} W,
+            Från {first.ua} W/K ({first.label}) till {ua} W/K är {n(Math.abs(d))} W {d > 0 ? 'mindre' : 'mer'} per grad. Vid 0 °C ute: {n(Math.abs(d))} × 18 = {n(Math.abs(d) * 18)} W,
             ungefär <b>{n((Math.abs(d) * 18 * 24) / 1000, 1)} kWh per dygn {d > 0 ? 'mindre' : 'mer'}</b>.
           </p>
         {/if}
-        <p>Måttet beror inte på vädret, så en kall och en mild vecka går att jämföra rakt av.</p>
+        <p>Måtten beror inte på vädret, så en kall och en mild vecka går att jämföra rakt av. ± är osäkerheten; med få mätningar är den stor.</p>
       </div>
     {/if}
     <p class="note">
-      {st.counted} av {st.measured} stilla perioder räknas{#if st.extra}{" "}({st.extra} efter eldning){/if}.
-      {#if st.freeHeat !== null}Rummen får också ungefär {st.freeHeat} W utan el (resten av huset, apparater); det räknas in, annars ser milda nätter bättre ut än kalla.{:else}Värdena kommer när minst fem stilla perioder är mätta.{/if}
-      kWh/dygn: vad värmen skulle dra vid 0 °C ute och 18 °C inne. ± är osäkerheten; med få nätter är den stor.
-      Eldning syns som att rummets givare för extra värme (&lt;rum&gt;_extra_heat_sensor) är mer än 2 °C varmare än termostaterna, eller att rummen blir varmare utan att elementen
-      värmer och utan sol. Med eld: samma mått med alla stilla perioder, även dem efter eldning (antal inom parentes); fler
-      men grövre, eftersom värmen från brasan får huset att se bättre ut än det är. Timmar då programmet värmer upp eller
-      låter rummen svalna räknas inte i något av måtten: då lagras eller släpps värme i väggarna.
+      {st.counted} av {st.measured} perioder med jämn värme räknas{#if st.extra}{" "}({st.extra} efter eldning){/if}.
+      Eldning syns som att rummets givare för extra värme (&lt;rum&gt;_extra_heat_sensor) är mer än 2 °C varmare än termostaterna, eller att
+      rummen blir varmare utan att elementen värmer och utan sol.
+      {#if st.freeHeat === null}Värdena kommer när minst fem perioder med jämn värme är mätta.{/if}
     </p>
     {#if st.errors.length}<p class="small errors">{st.errors.join(' · ')}</p>{/if}
   {/if}
@@ -176,15 +193,6 @@
   }
   .pm {
     font-size: 12px;
-  }
-  .loose {
-    color: var(--ink-muted);
-  }
-  /* a phone: kWh/dygn is worked out under Så räknas det */
-  @media (max-width: 480px) {
-    .kwh {
-      display: none;
-    }
   }
   .nights td {
     font-family: var(--font-mono);

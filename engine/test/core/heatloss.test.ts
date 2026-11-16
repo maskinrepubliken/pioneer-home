@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fitHeatLoss, nightOf, steadyWindows, type Night, type ZoneSample } from '../../src/core/heatloss.js';
+import { coolingHours, fitCooling, fitHeatLoss, nightOf, steadyWindows, type Night, type ZoneSample } from '../../src/core/heatloss.js';
 
 const night = (day: number, dT: number, ua: number, q: number, extra = false, change = 0): Night => ({
   t: Date.UTC(2026, 9, day, 1) / 1000,
@@ -64,5 +64,31 @@ describe('heat loss', () => {
     }
     const w = steadyWindows(s, day, day + 86400, 900, 8 * 3600, 3 * 3600, 0.3, (t) => String((t - day) / 3600));
     expect(w.map((n) => n.date)).toEqual(['0', '3', '22']);
+  });
+
+  it('learns the heat capacity where both measures exist and gives every era its value from cooling', () => {
+    // C = 1.5 kWh/K, Q = 0.2 kW: −dT/dt = (UA·ΔT − Q)/C, UA 75 W/K before the event and 50 after
+    const at = (day: number, h: number) => Date.UTC(2026, 9, day, h) / 1000;
+    const hour = (t: number, ua: number, dT: number) => ({ t, dT, rate: -((ua / 1000) * dT - 0.2) / 1.5 });
+    const hours = [...[8, 10, 12, 14, 9, 11].map((dT, i) => hour(at(1 + i, 20), 75, dT)), ...[8, 10, 12, 14, 9, 11].map((dT, i) => hour(at(20 + i, 20), 50, dT))];
+    const eras = [
+      { from: 0, at: '', title: '' },
+      { from: Date.UTC(2026, 9, 15), at: '2026-10-15', title: 'Fönstren isolerade' },
+    ];
+    const r = fitCooling(hours, eras, [75, null], 200);
+    expect(r.capacity).toBe(1.5);
+    expect(r.eras.map((e) => e.ua)).toEqual([75, 50]);
+  });
+
+  it('finds the cooling hours: dark, heaters at rest an hour before as well, no room warming by itself', () => {
+    const day = Date.UTC(2026, 10, 7, 0) / 1000;
+    const s: ZoneSample[] = [];
+    for (let t = day; t < day + 8 * 3600; t += 900) {
+      const h = (t - day) / 3600;
+      s.push({ t, tin: 18 - 0.4 * h, tout: 0, power: h < 2 ? 1.5 : 0, sun: 0, warming: h >= 6 && h < 6.25 });
+    }
+    const hrs = coolingHours(s, day, day + 8 * 3600, 900, 2 * 3600, 2.4);
+    expect(hrs.map((x) => (x.t - day) / 3600)).toEqual([3, 4, 5]);
+    expect(hrs[0]).toMatchObject({ rate: -0.4 });
   });
 });

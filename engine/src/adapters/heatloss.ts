@@ -7,13 +7,14 @@
  * Tuning in cells.tsv, optional: `heatloss_steady` (°C the zone may warm or cool over a window and still count, default 0.3). Extra heat
  * is found two ways: the room's `<room>_extra_heat_sensor` more than `program_extra_heat_margin` °C
  * (default 2) above the room's thermostats while they heat at under a fifth of their power (as the program), or the room
- * warming by WARM_C °C in an hour with its heaters under a fifth of their power and the sun down. `loose` is the same fit
- * with every steady night, fires or not: rougher (a fire makes a night look better), but with more nights.
+ * warming by WARM_C °C in an hour with its heaters under a fifth of their power and the sun down. `cooling` is the
+ * second measure: from the hours the zone cooled in the dark with the heaters at rest (core/heatloss.ts fitCooling);
+ * it leaves out only a room warming by itself, not the extra heat sensor, which sits too far from a stove to be sure.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { Logger } from 'pino';
 import type { Engine } from '../core/engine.js';
-import { fitHeatLoss, steadyWindows, type Era, type HeatLossResult, type Night, type ZoneSample } from '../core/heatloss.js';
+import { coolingHours, fitCooling, fitHeatLoss, steadyWindows, type CoolingHour, type CoolingResult, type Era, type HeatLossResult, type Night, type ZoneSample } from '../core/heatloss.js';
 import { buildSamples, meanOver, type Points } from '../core/thermal.js';
 import { localParts, wallClockToEpoch } from '../formula/time.js';
 import type { HistoryQuery } from './pocketbase.js';
@@ -29,7 +30,7 @@ const RUN_EVERY_MS = 3_600_000;
 /** °C a room warms in an hour, heaters at rest and no sun, that can only be extra heat (a wood stove) */
 const WARM_C = 0.5;
 /** bumped when what a night is changes, so every night is measured again */
-const NIGHT_VERSION = 4;
+const NIGHT_VERSION = 6;
 
 export interface HeatLossState extends HeatLossResult {
   /** epoch ms of the last run */
@@ -39,8 +40,8 @@ export interface HeatLossState extends HeatLossResult {
   steady: number;
   /** the rooms of the zone (ids) */
   rooms: string[];
-  /** the looser measure: every steady night, fires or not (a fire makes a night look better than the house is) */
-  loose: { freeHeat: number | null; counted: number; eras: { ua: number | null; se: number | null; nights: number }[] };
+  /** the second measure, from how fast the zone cools with the heaters at rest (core/heatloss.ts fitCooling) */
+  cooling: CoolingResult;
   errors: string[];
 }
 
@@ -49,6 +50,7 @@ interface Saved {
   /** local date (YYYY-MM-DD) of the last night looked at, measured or not */
   through: string | null;
   nights: Night[];
+  cooling: CoolingHour[];
 }
 
 type Row = Record<string, unknown>;
@@ -63,8 +65,8 @@ function liveRows(rows: Row[]): Row[] {
 }
 
 export class HeatLossService {
-  private saved: Saved = { key: '', through: null, nights: [] };
-  private state: HeatLossState = { at: 0, windowHours: 3, steady: 0.3, rooms: [], loose: { freeHeat: null, counted: 0, eras: [] }, freeHeat: null, eras: [], measured: 0, counted: 0, extra: 0, unsteady: 0, errors: [] };
+  private saved: Saved = { key: '', through: null, nights: [], cooling: [] };
+  private state: HeatLossState = { at: 0, windowHours: 3, steady: 0.3, rooms: [], cooling: { capacity: null, eras: [] }, freeHeat: null, eras: [], measured: 0, counted: 0, extra: 0, unsteady: 0, errors: [] };
   private running = false;
 
   constructor(
@@ -76,7 +78,7 @@ export class HeatLossService {
       try {
         this.saved = JSON.parse(readFileSync(opts.stateFile, 'utf8')) as Saved;
       } catch {
-        this.saved = { key: '', through: null, nights: [] };
+        this.saved = { key: '', through: null, nights: [], cooling: [] };
       }
     }
   }
@@ -118,7 +120,7 @@ export class HeatLossService {
       const margin = this.num('program_extra_heat_margin', 2);
       const extra = rooms.map((r) => extraHeatSensor(this.engine, r.id));
       const key = JSON.stringify([NIGHT_VERSION, rooms, extra, margin, steady]);
-      if (key !== this.saved.key) this.saved = { key, through: null, nights: [] };
+      if (key !== this.saved.key) this.saved = { key, through: null, nights: [], cooling: [] };
 
       // the days to measure: each local date after the last one looked at whose last window (starting before
       // midnight) has ended, with the hour after it
@@ -134,8 +136,9 @@ export class HeatLossService {
       }
       for (let i = 0; i < dates.length && rooms.length; i += CHUNK_NIGHTS) {
         const chunk = dates.slice(i, i + CHUNK_NIGHTS);
-        const nights = await this.measure(rooms, extra, margin, chunk, steady);
+        const { nights, cooling } = await this.measure(rooms, extra, margin, chunk, steady);
         this.saved.nights.push(...nights);
+        this.saved.cooling.push(...cooling);
         this.saved.through = chunk[chunk.length - 1]!.date;
       }
       if (dates.length) {
@@ -147,9 +150,9 @@ export class HeatLossService {
       const first = this.saved.nights[0];
       const events = [...cfg.events].sort((a, b) => a.ms - b.ms);
       const eras: Era[] = [{ from: 0, at: first?.date ?? '', title: '' }, ...events.filter((e) => !first || e.ms > first.t * 1000).map((e) => ({ from: e.ms, at: e.at, title: e.title }))];
-      const all = fitHeatLoss(this.saved.nights.map((n) => ({ ...n, extra: false })), eras, steady);
-      const loose = { freeHeat: all.freeHeat, counted: all.counted, eras: all.eras.map((e) => ({ ua: e.ua, se: e.se, nights: e.nights })) };
-      this.state = { at: now, windowHours: WIN_S / 3600, steady, rooms: rooms.map((r) => r.id), loose, ...fitHeatLoss(this.saved.nights, eras, steady), errors };
+      const fit = fitHeatLoss(this.saved.nights, eras, steady);
+      const cooling = fitCooling(this.saved.cooling, eras, fit.eras.map((e) => e.ua), fit.freeHeat);
+      this.state = { at: now, windowHours: WIN_S / 3600, steady, rooms: rooms.map((r) => r.id), cooling, ...fit, errors };
       if (!rooms.length) this.state.errors.push('inga uppvärmda rum (ett rum behöver en <rum>_target-cell och termostater med watts och historik)');
     } catch (e) {
       errors.push((e as Error).message);
@@ -161,7 +164,7 @@ export class HeatLossService {
   }
 
   /** The nights of one chunk of dates, from one read of history. */
-  private async measure(rooms: ReturnType<typeof heatedRooms>, extra: (string | null)[], margin: number, chunk: { date: string; from: number; to: number }[], steady: number): Promise<Night[]> {
+  private async measure(rooms: ReturnType<typeof heatedRooms>, extra: (string | null)[], margin: number, chunk: { date: string; from: number; to: number }[], steady: number): Promise<{ nights: Night[]; cooling: CoolingHour[] }> {
     const since = chunk[0]!.from - LOOKBACK_S * 1000 - 3_600_000;
     const until = chunk[chunk.length - 1]!.to + WIN_S * 1000 + 2 * 3_600_000;
     const iso = (ms: number) => new Date(ms).toISOString();
@@ -208,7 +211,7 @@ export class HeatLossService {
           const hour = [0, 1, 2, 3].map((i) => at.get(s.t + i * STEP_S));
           const later = at.get(s.t + 3600);
           const warming = !!later && hour.every((x) => x && x.sun <= 0 && x.power < 0.2 * maxKw) && later.tin - s.tin >= WARM_C;
-          return [s.t, { ...s, extra: bySensor || warming }];
+          return [s.t, { ...s, extra: bySensor || warming, warming }];
         }),
       );
     });
@@ -218,7 +221,7 @@ export class HeatLossService {
       const all = perRoom.map((m) => m.get(t));
       if (all.some((s) => !s)) continue;
       const xs = all as NonNullable<(typeof all)[number]>[];
-      zone.push({ t, tin: xs.reduce((a, s) => a + s.tin, 0) / xs.length, tout: s0.tout, power: xs.reduce((a, s) => a + s.power, 0), extra: xs.some((s) => s.extra), sun: s0.sun });
+      zone.push({ t, tin: xs.reduce((a, s) => a + s.tin, 0) / xs.length, tout: s0.tout, power: xs.reduce((a, s) => a + s.power, 0), extra: xs.some((s) => s.extra), warming: xs.some((s) => s.warming), sun: s0.sun });
     }
     zone.sort((a, b) => a.t - b.t);
     const tz = cfg.timezone;
@@ -227,6 +230,10 @@ export class HeatLossService {
       const two = (v: number) => String(v).padStart(2, '0');
       return `${p.year}-${two(p.month)}-${two(p.day)} ${two(p.hour)}:${two(p.minute)}`;
     };
-    return chunk.flatMap((c) => steadyWindows(zone, c.from / 1000, c.to / 1000, STEP_S, LOOKBACK_S, WIN_S, steady, label));
+    const maxKw = rooms.reduce((n, r) => n + r.heaters.reduce((m, h) => m + h.kw, 0), 0);
+    return {
+      nights: chunk.flatMap((c) => steadyWindows(zone, c.from / 1000, c.to / 1000, STEP_S, LOOKBACK_S, WIN_S, steady, label)),
+      cooling: chunk.flatMap((c) => coolingHours(zone, c.from / 1000, c.to / 1000, STEP_S, LOOKBACK_S, maxKw)),
+    };
   }
 }

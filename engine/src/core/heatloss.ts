@@ -23,6 +23,8 @@ export interface ZoneSample {
   tout: number;
   power: number;
   extra?: boolean;
+  /** extra heat seen as the room warming with its heaters at rest (part of `extra`) */
+  warming?: boolean;
   /** solar gain factor (0 when the sun is down) */
   sun?: number;
 }
@@ -200,6 +202,95 @@ export function fitHeatLoss(nights: Night[], eras: Era[], steady: number): HeatL
         se: c >= 0 && inv ? r0(Math.sqrt(Math.max(0, s2 * inv[c]![c]!)) * 1000) : null,
         perNight: xs.map((n) => ({ date: n.date, ua: r0(((n.kw + q) / n.dT) * 1000) })),
       };
+    }),
+  };
+}
+
+/**
+ * A cooling hour: an hour in the dark with the heaters nearly at rest and no extra heat, the zone left to cool.
+ * `rate` is how fast it cooled (°C/h, negative when cooling), `dT` the mean inside − outside.
+ */
+export interface CoolingHour {
+  t: number;
+  rate: number;
+  dT: number;
+}
+
+export interface CoolingEra {
+  /** cooling hours in the era */
+  hours: number;
+  /** W/K from the cooling rate and the heat capacity, null without enough hours or no capacity yet */
+  ua: number | null;
+  se: number | null;
+}
+
+export interface CoolingResult {
+  /** heat capacity of the zone, kWh/K (from the eras with a steady measure as well), null until known */
+  capacity: number | null;
+  eras: CoolingEra[];
+}
+
+/**
+ * Cooling hours in [from, to) (epoch seconds) from zone samples; `maxKw` is the zone's rated heating power. An hour
+ * with a room warming by itself (`warming`) in the look-back before it is left out.
+ */
+export function coolingHours(samples: ZoneSample[], from: number, to: number, stepS: number, lookbackS: number, maxKw: number): CoolingHour[] {
+  const at = new Map(samples.map((s) => [s.t, s]));
+  const out: CoolingHour[] = [];
+  const perHour = 3600 / stepS;
+  for (let t = Math.ceil(from / 3600) * 3600; t < to; t += 3600) {
+    // this hour and the one before: dark, heaters under a tenth of their power (the air cools fast for a while after
+    // heating stops, so the hour before must be quiet too), and the end of the hour known
+    const qs = Array.from({ length: 2 * perHour + 1 }, (_, i) => at.get(t - 3600 + i * stepS));
+    if (qs.some((q) => !q || (q.sun ?? 0) > 0) || qs.slice(0, -1).some((q) => q!.power > 0.1 * maxKw)) continue;
+    if (samples.some((s) => s.warming && s.t >= t - lookbackS && s.t < t + 3600)) continue;
+    const hour = qs.slice(perHour, 2 * perHour) as ZoneSample[];
+    const dT = hour.reduce((a, s) => a + s.tin - s.tout, 0) / hour.length;
+    if (dT < MIN_DT) continue;
+    out.push({ t, rate: Math.round((qs[2 * perHour]!.tin - qs[perHour]!.tin) * 1000) / 1000, dT: Math.round(dT * 100) / 100 });
+  }
+  return out;
+}
+
+/** At least this many cooling hours before an era gets a value. */
+const MIN_COOLING_HOURS = 6;
+
+/**
+ * Heat loss from cooling: the zone cools as C·dT/dt = −(UA·ΔT − Q). The capacity C (kWh/K: what walls and air hold,
+ * which insulation does not change) comes from the eras that also have a steady measure, where UA and Q are known:
+ * −dT/dt = (UA·ΔT − Q)/C, one least-squares slope through the origin. Then each cooling hour of any era gives its own
+ * UA = (−dT/dt · C + Q) / ΔT, and an era's value is the mean of its hours (± the standard error).
+ */
+export function fitCooling(hours: CoolingHour[], eras: Era[], steadyUa: (number | null)[], freeHeat: number | null): CoolingResult {
+  const eraOf = (h: CoolingHour) => {
+    let k = 0;
+    for (let i = 0; i < eras.length; i++) if (eras[i]!.from <= h.t * 1000) k = i;
+    return k;
+  };
+  const byEra = eras.map(() => [] as CoolingHour[]);
+  for (const h of hours) byEra[eraOf(h)]!.push(h);
+  const q = (freeHeat ?? 0) / 1000;
+  let sxy = 0;
+  let sxx = 0;
+  byEra.forEach((xs, i) => {
+    const ua = steadyUa[i];
+    if (ua === null || ua === undefined || xs.length < MIN_COOLING_HOURS) return;
+    for (const h of xs) {
+      const x = (ua / 1000) * h.dT - q;
+      sxy += x * -h.rate;
+      sxx += x * x;
+    }
+  });
+  const inv = sxx > 0 ? sxy / sxx : 0;
+  const capacity = inv > 0 ? 1 / inv : null;
+  return {
+    capacity: capacity === null ? null : Math.round(capacity * 100) / 100,
+    eras: byEra.map((xs) => {
+      if (capacity === null || xs.length < MIN_COOLING_HOURS) return { hours: xs.length, ua: null, se: null };
+      const v = xs.map((h) => ((-h.rate * capacity + q) / h.dT) * 1000);
+      const m = v.reduce((a, b) => a + b, 0) / v.length;
+      const sd = Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / Math.max(1, v.length - 1));
+      return { hours: xs.length, ua: Math.round(m), se: Math.round(sd / Math.sqrt(v.length)) };
     }),
   };
 }

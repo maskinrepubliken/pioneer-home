@@ -186,7 +186,7 @@ export interface HeatLossState {
   rooms: string[];
   freeHeat: number | null;
   eras: HeatLossEra[];
-  loose?: { freeHeat: number | null; counted: number; eras: { ua: number | null; se: number | null; nights: number }[] };
+  cooling?: { capacity: number | null; eras: { hours: number; ua: number | null; se: number | null }[] };
   measured: number;
   counted: number;
   extra: number;
