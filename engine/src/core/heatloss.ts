@@ -4,11 +4,11 @@
  * that feeds them from history is adapters/heatloss.ts.
  *
  * The zone is every heated room (adapters/program.ts heatedRooms): its heating power is the sum of the thermostats'
- * watts × demand, its temperature the mean of the rooms'. Each night the window (02:00–05:00 by default) gives the
- * energy used and the mean difference inside − outside: no sun, rarely anyone about. A night counts when the zone
- * was steady (it neither cooled nor warmed by more than `steady` °C over the window; a room cooling towards a lower
- * target lives on stored heat, one being warmed stores it) and no extra heat (a wood stove) was seen from 8 hours
- * before the window to its end.
+ * watts × demand, its temperature the mean of the rooms'. Every three hours in the dark (evening, night, early
+ * morning: no sun) give the energy used and the mean difference inside − outside. Such a window counts when the zone
+ * was steady (it neither cooled nor warmed by more than `steady` °C over it; a room cooling towards a lower target
+ * lives on stored heat, one being warmed stores it) and no extra heat (a wood stove) was seen from 8 hours before it
+ * to its end. Called nights below, as they mostly are.
  *
  * The zone also gets heat that is not in the thermostats (the rest of the house, appliances, people): `Q`. So a night's
  * power is P = UA·ΔT − Q, and P/ΔT alone looks better on a mild night than on a cold one. One least-squares fit over
@@ -23,6 +23,8 @@ export interface ZoneSample {
   tout: number;
   power: number;
   extra?: boolean;
+  /** solar gain factor (0 when the sun is down) */
+  sun?: number;
 }
 
 export interface Night {
@@ -38,6 +40,8 @@ export interface Night {
   tout: number;
   /** how much the zone warmed (+) or cooled (−) over the window, °C */
   change: number;
+  /** the zone's highest less its lowest temperature, from the hour before to the hour after, °C */
+  span?: number;
   /** extra heat (a wood stove) seen from the look-back before the window to its end */
   extra: boolean;
 }
@@ -82,6 +86,7 @@ export function nightOf(samples: ZoneSample[], from: number, to: number, date: s
   // from the hour before to the hour after, scaled to the window
   const change = before.length && after.length ? ((mean(after) - mean(before)) * (to - from)) / (to - from + 3600) : inWin[inWin.length - 1]!.tin - inWin[0]!.tin;
   const r = (v: number, d = 100) => Math.round(v * d) / d;
+  const around = samples.filter((s) => s.t >= from - 3600 && s.t < to + 3600).map((s) => s.tin);
   return {
     t: from,
     date,
@@ -90,9 +95,38 @@ export function nightOf(samples: ZoneSample[], from: number, to: number, date: s
     tin: r(mean(inWin.map((s) => s.tin))),
     tout: r(mean(inWin.map((s) => s.tout))),
     change: r(change),
+    span: r(Math.max(...around) - Math.min(...around)),
     extra: samples.some((s) => s.extra && s.t >= from - lookbackS && s.t < to),
   };
 }
+
+/**
+ * The steady windows of `winS` seconds in [from, to) (epoch seconds), each starting on a full hour with the sun down in
+ * every sample: a window counts when the zone changed less than `steady` °C over it and did not swing more than
+ * SPAN × `steady` within it (warmed and cooled back); the next one starts after it.
+ * `label` names a window by its start (local date and time). Windows with extra heat are kept, flagged.
+ */
+export function steadyWindows(samples: ZoneSample[], from: number, to: number, stepS: number, lookbackS: number, winS: number, steady: number, label: (t: number) => string): Night[] {
+  const at = new Map(samples.map((s) => [s.t, s]));
+  const out: Night[] = [];
+  let t = Math.ceil(from / 3600) * 3600;
+  while (t < to) {
+    const qs = Array.from({ length: winS / stepS }, (_, i) => at.get(t + i * stepS));
+    if (qs.every((q) => q && (q.sun ?? 0) <= 0)) {
+      const n = nightOf(samples, t, t + winS, label(t), stepS, lookbackS);
+      if (n && Math.abs(n.change) < steady && (n.span ?? 0) < SPAN * steady) {
+        out.push(n);
+        t += winS;
+        continue;
+      }
+    }
+    t += 3600;
+  }
+  return out;
+}
+
+/** How far the zone may swing within a steady window, in multiples of `steady` (a thermostat holding wobbles a little). */
+const SPAN = 2.5;
 
 /** Inverse of a small symmetric matrix (Gauss–Jordan), null when singular. */
 function invert(A: number[][]): number[][] | null {

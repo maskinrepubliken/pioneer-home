@@ -181,7 +181,7 @@ export interface HeatLossEra {
 }
 export interface HeatLossState {
   at: number;
-  window: { from: string; to: string };
+  windowHours: number;
   steady: number;
   rooms: string[];
   freeHeat: number | null;

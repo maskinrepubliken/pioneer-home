@@ -49,7 +49,7 @@
 <section class="panel" aria-labelledby="h-heatloss">
   <header class="head">
     <h3 id="h-heatloss">Värmeförlust</h3>
-    {#if st && st.counted}<button class="btn small" onclick={() => (open = !open)} aria-expanded={open}>{open ? 'Dölj nätterna' : 'Nätterna'}</button>{/if}
+    {#if st && st.counted}<button class="btn small" onclick={() => (open = !open)} aria-expanded={open}>{open ? 'Dölj mätningarna' : 'Mätningarna'}</button>{/if}
   </header>
   {#if failed && !st}
     <p class="small faint">Motorn svarar inte på /api/heatloss.</p>
@@ -57,11 +57,11 @@
     <p class="small faint">Hämtar…</p>
   {:else}
     <p class="small">
-      Watt per grad mellan inne och ute i {rooms || 'de uppvärmda rummen'}, mätt stilla nätter {st.window.from}–{st.window.to} utan eldning.
+      Watt per grad mellan inne och ute i {rooms || 'de uppvärmda rummen'}, mätt i mörker (kväll, natt, tidig morgon) under tretimmarsperioder då rummen höll jämn temperatur och ingen eldade.
       Lägre är bättre. En rad per tid mellan två händelser.
     </p>
     <table class="loss">
-      <thead><tr><th>Från</th><th>Nätter</th><th>W/K</th><th class="kwh" title="vid 0 °C ute och 18 °C inne">kWh/dygn</th><th title="alla stilla nätter, även med eldning">Med eld</th></tr></thead>
+      <thead><tr><th>Från</th><th title="tretimmarsperioder i mörker">Antal</th><th>W/K</th><th class="kwh" title="vid 0 °C ute och 18 °C inne">kWh/dygn</th><th title="alla stilla nätter, även med eldning">Med eld</th></tr></thead>
       <tbody>
         {#each st.eras as e, i (i)}
           <tr>
@@ -105,13 +105,13 @@
       </div>
     {/if}
     <p class="note">
-      {st.counted} av {st.measured} nätter räknas{#if st.extra}{" "}({st.extra} med eldning och {st.unsteady} då rummen svalnade eller värmdes){/if}.
-      {#if st.freeHeat !== null}Rummen får också ungefär {st.freeHeat} W utan el (resten av huset, apparater); det räknas in, annars ser milda nätter bättre ut än kalla.{:else}Värdena kommer när minst fem stilla nätter är mätta.{/if}
+      {st.counted} av {st.measured} stilla perioder räknas{#if st.extra}{" "}({st.extra} efter eldning){/if}.
+      {#if st.freeHeat !== null}Rummen får också ungefär {st.freeHeat} W utan el (resten av huset, apparater); det räknas in, annars ser milda nätter bättre ut än kalla.{:else}Värdena kommer när minst fem stilla perioder är mätta.{/if}
       kWh/dygn: vad värmen skulle dra vid 0 °C ute och 18 °C inne. ± är osäkerheten; med få nätter är den stor.
       Eldning syns som att rummets givare för extra värme (&lt;rum&gt;_extra_heat_sensor) är mer än 2 °C varmare än termostaterna, eller att rummen blir varmare utan att elementen
-      värmer och utan sol. Med eld: samma mått med alla stilla nätter, även dem efter eldning (antal nätter inom parentes); fler
-      nätter men grövre, eftersom värmen från brasan får huset att se bättre ut än det är. Nätter då programmet värmer upp eller
-      låter rummen svalna räknas inte i något av måtten.
+      värmer och utan sol. Med eld: samma mått med alla stilla perioder, även dem efter eldning (antal inom parentes); fler
+      men grövre, eftersom värmen från brasan får huset att se bättre ut än det är. Timmar då programmet värmer upp eller
+      låter rummen svalna räknas inte i något av måtten: då lagras eller släpps värme i väggarna.
     </p>
     {#if st.errors.length}<p class="small errors">{st.errors.join(' · ')}</p>{/if}
   {/if}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fitHeatLoss, nightOf, type Night, type ZoneSample } from '../../src/core/heatloss.js';
+import { fitHeatLoss, nightOf, steadyWindows, type Night, type ZoneSample } from '../../src/core/heatloss.js';
 
 const night = (day: number, dT: number, ua: number, q: number, extra = false, change = 0): Night => ({
   t: Date.UTC(2026, 9, day, 1) / 1000,
@@ -51,5 +51,18 @@ describe('heat loss', () => {
     expect(n).toMatchObject({ kw: 0.8, dT: 12, change: 0, extra: true });
     expect(nightOf(s, from, from + 3 * 3600, '2026-11-07', 900, 6 * 3600)!.extra).toBe(false);
     expect(nightOf(s.slice(0, 40), from, from + 3 * 3600, 'x', 900, 0)).toBeNull();
+  });
+
+  it('takes the steady three-hour windows in the dark, one after the other', () => {
+    const day = Date.UTC(2026, 10, 7, 0) / 1000;
+    const s: ZoneSample[] = [];
+    for (let t = day - 9 * 3600; t < day + 30 * 3600; t += 900) {
+      const h = (t - day) / 3600;
+      // dark before 07 and after 16; the zone is warmed from 12 to 15 between 16 and 18 and cools back by 21
+      const tin = h >= 16 && h < 18 ? 12 + 1.5 * (h - 16) : h >= 18 && h < 21 ? 12 + (21 - h) : 12;
+      s.push({ t, tin, tout: 0, power: 0.8, sun: h >= 7 && h < 16 ? 0.4 : 0 });
+    }
+    const w = steadyWindows(s, day, day + 86400, 900, 8 * 3600, 3 * 3600, 0.3, (t) => String((t - day) / 3600));
+    expect(w.map((n) => n.date)).toEqual(['0', '3', '22']);
   });
 });

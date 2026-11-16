@@ -1,11 +1,10 @@
 /**
  * The house's heat loss per era between the events in events.tsv (core/heatloss.ts), kept up to date by itself:
- * every hour it measures the nights not measured yet (heating, climate and weather history of each night's window,
- * at most HISTORY_DAYS back), and fits again with the events as they are now. Served as GET /api/heatloss and shown
+ * every hour it measures the days not measured yet (heating, climate and weather history, at most HISTORY_DAYS back:
+ * every steady three hours in the dark, core/heatloss.ts steadyWindows), and fits again with the events as they are now. Served as GET /api/heatloss and shown
  * on Kostnader. Nights are kept in STATE_DIR/heatloss.json, so history is read once per night.
  *
- * Tuning in cells.tsv, all optional: `heatloss_from` and `heatloss_to` (timeofday, the night window, default 02:00 and
- * 05:00), `heatloss_steady` (°C the zone may warm or cool over the window and still count, default 0.3). Extra heat
+ * Tuning in cells.tsv, optional: `heatloss_steady` (°C the zone may warm or cool over a window and still count, default 0.3). Extra heat
  * is found two ways: the room's `<room>_extra_heat_sensor` more than `program_extra_heat_margin` °C
  * (default 2) above the room's thermostats while they heat at under a fifth of their power (as the program), or the room
  * warming by WARM_C °C in an hour with its heaters under a fifth of their power and the sun down. `loose` is the same fit
@@ -14,10 +13,9 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { Logger } from 'pino';
 import type { Engine } from '../core/engine.js';
-import { fitHeatLoss, nightOf, type Era, type HeatLossResult, type Night, type ZoneSample } from '../core/heatloss.js';
+import { fitHeatLoss, steadyWindows, type Era, type HeatLossResult, type Night, type ZoneSample } from '../core/heatloss.js';
 import { buildSamples, meanOver, type Points } from '../core/thermal.js';
 import { localParts, wallClockToEpoch } from '../formula/time.js';
-import { TimeOfDay } from '../formula/values.js';
 import type { HistoryQuery } from './pocketbase.js';
 import { extraHeatSensor, heatedRooms } from './program.js';
 
@@ -25,17 +23,19 @@ const HISTORY_DAYS = 180;
 const STEP_S = 900;
 const LOOKBACK_S = 8 * 3600;
 const CHUNK_NIGHTS = 14;
+/** the length of a measured window, seconds */
+const WIN_S = 3 * 3600;
 const RUN_EVERY_MS = 3_600_000;
 /** °C a room warms in an hour, heaters at rest and no sun, that can only be extra heat (a wood stove) */
 const WARM_C = 0.5;
 /** bumped when what a night is changes, so every night is measured again */
-const NIGHT_VERSION = 2;
+const NIGHT_VERSION = 4;
 
 export interface HeatLossState extends HeatLossResult {
   /** epoch ms of the last run */
   at: number;
-  /** the night window, HH:MM local */
-  window: { from: string; to: string };
+  /** the length of a measured window in the dark, hours */
+  windowHours: number;
   steady: number;
   /** the rooms of the zone (ids) */
   rooms: string[];
@@ -64,7 +64,7 @@ function liveRows(rows: Row[]): Row[] {
 
 export class HeatLossService {
   private saved: Saved = { key: '', through: null, nights: [] };
-  private state: HeatLossState = { at: 0, window: { from: '02:00', to: '05:00' }, steady: 0.3, rooms: [], loose: { freeHeat: null, counted: 0, eras: [] }, freeHeat: null, eras: [], measured: 0, counted: 0, extra: 0, unsteady: 0, errors: [] };
+  private state: HeatLossState = { at: 0, windowHours: 3, steady: 0.3, rooms: [], loose: { freeHeat: null, counted: 0, eras: [] }, freeHeat: null, eras: [], measured: 0, counted: 0, extra: 0, unsteady: 0, errors: [] };
   private running = false;
 
   constructor(
@@ -101,10 +101,6 @@ export class HeatLossService {
   private cell(id: string): unknown {
     return this.engine.store.has(id) ? this.engine.store.get(id) : null;
   }
-  private time(id: string, fallbackMs: number): number {
-    const v = this.cell(id);
-    return v instanceof TimeOfDay ? v.ms : fallbackMs;
-  }
   private num(id: string, fallback: number): number {
     const v = this.cell(id);
     return typeof v === 'number' ? v : fallback;
@@ -118,28 +114,27 @@ export class HeatLossService {
       const cfg = this.engine.config;
       const tz = cfg.timezone;
       const rooms = heatedRooms(cfg);
-      const fromMs = this.time('heatloss_from', 2 * 3_600_000);
-      const toMs = this.time('heatloss_to', 5 * 3_600_000);
-      const winS = (((toMs - fromMs) % 86_400_000) + 86_400_000) % 86_400_000 / 1000;
       const steady = this.num('heatloss_steady', 0.3);
       const margin = this.num('program_extra_heat_margin', 2);
       const extra = rooms.map((r) => extraHeatSensor(this.engine, r.id));
-      const key = JSON.stringify([NIGHT_VERSION, rooms, fromMs, toMs, extra, margin]);
+      const key = JSON.stringify([NIGHT_VERSION, rooms, extra, margin, steady]);
       if (key !== this.saved.key) this.saved = { key, through: null, nights: [] };
 
-      // the nights to measure: each local date after the last one looked at whose window ended an hour ago
+      // the days to measure: each local date after the last one looked at whose last window (starting before
+      // midnight) has ended, with the hour after it
       const now = Date.now();
-      const dates: { date: string; from: number }[] = [];
+      const dates: { date: string; from: number; to: number }[] = [];
       const start = this.saved.through ? Date.parse(`${this.saved.through}T12:00:00Z`) + 86_400_000 : now - HISTORY_DAYS * 86_400_000;
       for (let d = start; ; d += 86_400_000) {
         const p = localParts(d, tz);
-        const from = wallClockToEpoch(p.year, p.month, p.day, fromMs, tz);
-        if (from + winS * 1000 + 3_600_000 > now) break;
-        dates.push({ date: `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`, from });
+        const from = wallClockToEpoch(p.year, p.month, p.day, 0, tz);
+        const to = wallClockToEpoch(p.year, p.month, p.day, 86_400_000, tz);
+        if (to + WIN_S * 1000 + 3_600_000 > now) break;
+        dates.push({ date: `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`, from, to });
       }
       for (let i = 0; i < dates.length && rooms.length; i += CHUNK_NIGHTS) {
         const chunk = dates.slice(i, i + CHUNK_NIGHTS);
-        const nights = await this.measure(rooms, extra, margin, chunk, winS);
+        const nights = await this.measure(rooms, extra, margin, chunk, steady);
         this.saved.nights.push(...nights);
         this.saved.through = chunk[chunk.length - 1]!.date;
       }
@@ -152,10 +147,9 @@ export class HeatLossService {
       const first = this.saved.nights[0];
       const events = [...cfg.events].sort((a, b) => a.ms - b.ms);
       const eras: Era[] = [{ from: 0, at: first?.date ?? '', title: '' }, ...events.filter((e) => !first || e.ms > first.t * 1000).map((e) => ({ from: e.ms, at: e.at, title: e.title }))];
-      const hhmm = (ms: number) => `${String(Math.floor(ms / 3_600_000)).padStart(2, '0')}:${String(Math.floor((ms % 3_600_000) / 60_000)).padStart(2, '0')}`;
       const all = fitHeatLoss(this.saved.nights.map((n) => ({ ...n, extra: false })), eras, steady);
       const loose = { freeHeat: all.freeHeat, counted: all.counted, eras: all.eras.map((e) => ({ ua: e.ua, se: e.se, nights: e.nights })) };
-      this.state = { at: now, window: { from: hhmm(fromMs), to: hhmm(toMs) }, steady, rooms: rooms.map((r) => r.id), loose, ...fitHeatLoss(this.saved.nights, eras, steady), errors };
+      this.state = { at: now, windowHours: WIN_S / 3600, steady, rooms: rooms.map((r) => r.id), loose, ...fitHeatLoss(this.saved.nights, eras, steady), errors };
       if (!rooms.length) this.state.errors.push('inga uppvärmda rum (ett rum behöver en <rum>_target-cell och termostater med watts och historik)');
     } catch (e) {
       errors.push((e as Error).message);
@@ -167,9 +161,9 @@ export class HeatLossService {
   }
 
   /** The nights of one chunk of dates, from one read of history. */
-  private async measure(rooms: ReturnType<typeof heatedRooms>, extra: (string | null)[], margin: number, chunk: { date: string; from: number }[], winS: number): Promise<Night[]> {
+  private async measure(rooms: ReturnType<typeof heatedRooms>, extra: (string | null)[], margin: number, chunk: { date: string; from: number; to: number }[], steady: number): Promise<Night[]> {
     const since = chunk[0]!.from - LOOKBACK_S * 1000 - 3_600_000;
-    const until = chunk[chunk.length - 1]!.from + winS * 1000 + 2 * 3_600_000;
+    const until = chunk[chunk.length - 1]!.to + WIN_S * 1000 + 2 * 3_600_000;
     const iso = (ms: number) => new Date(ms).toISOString();
     const [heating, weather, climate] = await Promise.all([
       this.opts.history.query('heating', iso(since), iso(until)),
@@ -224,9 +218,15 @@ export class HeatLossService {
       const all = perRoom.map((m) => m.get(t));
       if (all.some((s) => !s)) continue;
       const xs = all as NonNullable<(typeof all)[number]>[];
-      zone.push({ t, tin: xs.reduce((a, s) => a + s.tin, 0) / xs.length, tout: s0.tout, power: xs.reduce((a, s) => a + s.power, 0), extra: xs.some((s) => s.extra) });
+      zone.push({ t, tin: xs.reduce((a, s) => a + s.tin, 0) / xs.length, tout: s0.tout, power: xs.reduce((a, s) => a + s.power, 0), extra: xs.some((s) => s.extra), sun: s0.sun });
     }
     zone.sort((a, b) => a.t - b.t);
-    return chunk.map((c) => nightOf(zone, c.from / 1000, c.from / 1000 + winS, c.date, STEP_S, LOOKBACK_S)).filter((n): n is Night => n !== null);
+    const tz = cfg.timezone;
+    const label = (t: number) => {
+      const p = localParts(t * 1000, tz);
+      const two = (v: number) => String(v).padStart(2, '0');
+      return `${p.year}-${two(p.month)}-${two(p.day)} ${two(p.hour)}:${two(p.minute)}`;
+    };
+    return chunk.flatMap((c) => steadyWindows(zone, c.from / 1000, c.to / 1000, STEP_S, LOOKBACK_S, WIN_S, steady, label));
   }
 }
